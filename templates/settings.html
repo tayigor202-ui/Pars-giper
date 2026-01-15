@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки - OZON Parser{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="page-title"><i class="bi bi-gear"></i> Настройки системы</h1>
+        <p class="page-subtitle">Конфигурация расписания и параметров парсера</p>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="main-card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock"></i> Расписания парсинга</h5>
+            </div>
+            <div class="card-body">
+                <div id="schedules-list"></div>
+
+                <button class="btn btn-premium w-100 mb-3" id="add-schedule-btn">
+                    <i class="bi bi-plus-circle"></i> Добавить расписание
+                </button>
+
+                <button class="btn btn-premium w-100" id="save-schedules-btn">
+                    <i class="bi bi-save"></i> Сохранить все расписания
+                </button>
+
+                <div id="schedule-status" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="main-card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-database"></i> База данных</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-link-45deg"></i> URL Google Sheets</label>
+                    <input type="text" class="form-control" id="google-sheet-url"
+                        placeholder="https://docs.google.com/spreadsheets/d/...">
+                    <small class="text-white-50 d-block mt-1">Ссылка на таблицу с товарами для импорта</small>
+                </div>
+
+                <button class="btn btn-premium w-100 mb-3" id="save-sheet-url-btn">
+                    <i class="bi bi-save"></i> Сохранить ссылку на таблицу
+                </button>
+
+                <hr style="border-color: rgba(255,255,255,0.2);">
+
+                <div class="mb-3">
+                    <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров из Google Sheets</p>
+                    <button class="btn btn-premium w-100" id="update-db-btn">
+                        <i class="bi bi-arrow-repeat"></i> Импортировать данные
+                    </button>
+                </div>
+
+                <div id="db-status" class="mt-3"></div>
+
+                <hr style="border-color: rgba(255,255,255,0.2);">
+
+                <div class="mt-3">
+                    <h6><i class="bi bi-check-circle"></i> Подключено к БД PostgreSQL</h6>
+                    <small class="text-white-50">Соединение активно</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="main-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Информация о системе</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <p><strong>Порт веб-интерфейса:</strong><br>3454</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Режим запуска:</strong><br>Development</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Парсер:</strong><br>Ozon Production Final</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .schedule-item {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .schedule-item .form-label {
+        font-size: 0.875rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .schedule-item .btn-danger {
+        background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    }
+
+    .days-checkboxes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .day-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+</style>
+
+<script>
+    let schedules = [];
+    let scheduleIdCounter = 1;
+
+    // Load saved schedules from backend
+    function loadSchedules() {
+        fetch('/api/schedules')
+            .then(r => r.json())
+            .then(data => {
+                schedules = data;
+                if (schedules.length > 0) {
+                    scheduleIdCounter = Math.max(...schedules.map(s => s.id), 0) + 1;
+                }
+                renderSchedules();
+                loadSchedulerStatus();
+            })
+            .catch(err => {
+                console.error('Error loading schedules:', err);
+                schedules = [];
+                renderSchedules();
+            });
+    }
+
+    // Load scheduler status
+    function loadSchedulerStatus() {
+        fetch('/api/schedules/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.jobs && data.jobs.length > 0) {
+                    const statusHtml = '<div class="alert"><i class="bi bi-clock"></i> <strong>Активных задач:</strong> ' + data.jobs.length +
+                        '<ul class="mt-2 mb-0">' + data.jobs.map(j => '<li>' + j.name + ' - следующий запуск: ' + j.next_run + '</li>').join('') + '</ul></div>';
+                    document.getElementById('schedule-status').innerHTML = statusHtml;
+                } else {
+                    document.getElementById('schedule-status').innerHTML = '<div class="alert"><i class="bi bi-info-circle"></i> Нет активных задач расписания.</div>';
+                }
+            })
+            .catch(err => console.error('Error loading status:', err));
+    }
+
+    // Render all schedules
+    function renderSchedules() {
+        const container = document.getElementById('schedules-list');
+        if (schedules.length === 0) {
+            container.innerHTML = '<p class="text-white-50 text-center">Нет настроенных расписаний. Нажмите "Добавить расписание"</p>';
+            return;
+        }
+
+        container.innerHTML = schedules.map(schedule => `
+        <div class="schedule-item" data-id="${schedule.id}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Расписание #${schedule.id}</h6>
+                <button class="btn btn-danger btn-sm" onclick="removeSchedule(${schedule.id})">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            
+            <div class="mb-2">
+                <label class="form-label">Активно</label>
+                <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'enabled', this.value)">
+                    <option value="false" ${!schedule.enabled ? 'selected' : ''}>Отключено</option>
+                    <option value="true" ${schedule.enabled ? 'selected' : ''}>Включено</option>
+                </select>
+            </div>
+            
+            <div class="mb-2">
+                <label class="form-label">Время запуска</label>
+                <input type="time" class="form-control form-control-sm" value="${schedule.time}" 
+                       onchange="updateSchedule(${schedule.id}, 'time', this.value)">
+            </div>
+            
+            <div class="mb-2">
+                <label class="form-label">Дни недели</label>
+                <div class="days-checkboxes">
+                    ${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((day, i) => `
+                        <div class="day-checkbox">
+                            <input type="checkbox" class="form-check-input" id="day-${schedule.id}-${i}" 
+                                   ${schedule.days.includes(i) ? 'checked' : ''}
+                                   onchange="updateScheduleDays(${schedule.id})">
+                            <label class="form-check-label" for="day-${schedule.id}-${i}">${day}</label>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `).join('');
+    }
+
+    // Add new schedule
+    document.getElementById('add-schedule-btn').addEventListener('click', () => {
+        schedules.push({
+            id: scheduleIdCounter++,
+            enabled: false,
+            time: '03:00',
+            days: [1, 2, 3, 4, 5] // Mon-Fri
+        });
+        renderSchedules();
+    });
+
+    // Remove schedule
+    function removeSchedule(id) {
+        if (confirm('Удалить это расписание?')) {
+            schedules = schedules.filter(s => s.id !== id);
+            renderSchedules();
+        }
+    }
+
+    // Update schedule field
+    function updateSchedule(id, field, value) {
+        const schedule = schedules.find(s => s.id === id);
+        if (schedule) {
+            schedule[field] = field === 'enabled' ? value === 'true' : value;
+        }
+    }
+
+    // Update schedule days
+    function updateScheduleDays(id) {
+        const schedule = schedules.find(s => s.id === id);
+        if (schedule) {
+            schedule.days = [];
+            for (let i = 0; i < 7; i++) {
+                const checkbox = document.getElementById(`day-${id}-${i}`);
+                if (checkbox && checkbox.checked) {
+                    schedule.days.push(i);
+                }
+            }
+        }
+    }
+
+    // Save all schedules to backend
+    document.getElementById('save-schedules-btn').addEventListener('click', function () {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+
+        fetch('/api/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(schedules)
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('schedule-status');
+                if (data.status === 'success') {
+                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
+                    loadSchedulerStatus(); // Reload status to show next run times
+                } else {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                }
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить все расписания';
+            })
+            .catch(err => {
+                document.getElementById('schedule-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить все расписания';
+            });
+    });
+
+    // Google Sheets URL
+    document.getElementById('save-sheet-url-btn').addEventListener('click', function () {
+        const url = document.getElementById('google-sheet-url').value.trim();
+        if (!url) {
+            alert('Введите URL Google Sheets');
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+
+        localStorage.setItem('google_sheet_url', url);
+
+        setTimeout(() => {
+            document.getElementById('db-status').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL сохранён: ' + url.substring(0, 50) + '...</div>';
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку на таблицу';
+        }, 500);
+    });
+
+    // Load saved URL
+    const savedUrl = localStorage.getItem('google_sheet_url');
+    if (savedUrl) {
+        document.getElementById('google-sheet-url').value = savedUrl;
+    }
+
+    // Database update
+    document.getElementById('update-db-btn').addEventListener('click', function () {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт данных...';
+
+        fetch('/api/database/update', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('db-status');
+                const alertClass = data.status === 'success' ? 'alert' : 'alert alert-danger';
+                statusDiv.innerHTML = '<div class="' + alertClass + '"><i class="bi bi-' + (data.status === 'success' ? 'check' : 'x') + '-circle"></i> ' + data.message + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать данные';
+            })
+            .catch(err => {
+                document.getElementById('db-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать данные';
+            });
+    });
+
+    // Load schedules on page load
+    loadSchedules();
+</script>
+{% endblock %}

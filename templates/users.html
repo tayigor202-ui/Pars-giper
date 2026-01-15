@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+
+{% block title %}Управление пользователями - OZON Parser{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="page-title"><i class="bi bi-people"></i> Управление пользователями</h1>
+        <p class="page-subtitle">Создание и настройка доступа пользователей</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="main-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-person-lines-fill"></i> Пользователи системы</h5>
+                <button class="btn btn-premium" id="add-user-btn">
+                    <i class="bi bi-person-plus"></i> Добавить пользователя
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="users-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Логин</th>
+                                <th>Имя</th>
+                                <th>Email</th>
+                                <th>Последний вход</th>
+                                <th>Активен</th>
+                                <th>Права</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr>
+                                <td colspan="8" class="text-center">Загрузка...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Edit Modal -->
+<div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content"
+            style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.2);">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
+                <h5 class="modal-title" id="modalTitle">Новый пользователь</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="user-form">
+                    <input type="hidden" id="user-id">
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Логин *</label>
+                            <input type="text" class="form-control" id="username" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Пароль <span id="password-note">(оставьте пустым чтобы не
+                                    менять)</span></label>
+                            <input type="password" class="form-control" id="password">
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Имя</label>
+                            <input type="text" class="form-control" id="full-name">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is-active" checked>
+                            <label class="form-check-label" for="is-active">Активен</label>
+                        </div>
+                    </div>
+
+                    <hr style="border-color: rgba(255,255,255,0.2);">
+
+                    <h6 class="mb-3"><i class="bi bi-shield-check"></i> Права доступа</h6>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-white-50 small">Основное</h6>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-dashboard" checked>
+                                <label class="form-check-label" for="perm-dashboard">
+                                    <i class="bi bi-graph-up"></i> Просмотр дашборда
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-parser-status">
+                                <label class="form-check-label" for="perm-parser-status">
+                                    <i class="bi bi-eye"></i> Просмотр статуса парсера
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-run-parser">
+                                <label class="form-check-label" for="perm-run-parser">
+                                    <i class="bi bi-play-circle"></i> Запуск парсера
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-view-settings">
+                                <label class="form-check-label" for="perm-view-settings">
+                                    <i class="bi bi-gear"></i> Просмотр настроек
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-white-50 small">Настройки</h6>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-edit-schedules">
+                                <label class="form-check-label" for="perm-edit-schedules">
+                                    <i class="bi bi-clock-history"></i> Редактирование расписания
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-edit-db">
+                                <label class="form-check-label" for="perm-edit-db">
+                                    <i class="bi bi-database-gear"></i> Настройки базы данных
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-import-data">
+                                <label class="form-check-label" for="perm-import-data">
+                                    <i class="bi bi-arrow-down-circle"></i> Импорт данных из Google Sheets
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="perm-manage-users">
+                                <label class="form-check-label" for="perm-manage-users">
+                                    <i class="bi bi-people-fill"></i> Управление пользователями (админ)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid rgba(255, 255, 255, 0.2);">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-premium" id="save-user-btn">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allUsers = [];
+    let editingUserId = null;
+
+    // Load users on page load
+    document.addEventListener('DOMContentLoaded', loadUsers);
+
+    function loadUsers() {
+        fetch('/api/users')
+            .then(r => r.json())
+            .then(users => {
+                allUsers = users;
+                renderUsers();
+            })
+            .catch(err => {
+                console.error('Error loading users:', err);
+                document.getElementById('users-tbody').innerHTML =
+                    '<tr><td colspan="8" class="text-center text-danger">Ошибка загрузки пользователей</td></tr>';
+            });
+    }
+
+    function renderUsers() {
+        const tbody = document.getElementById('users-tbody');
+
+        if (allUsers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">Нет пользователей</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = allUsers.map(user => {
+            const perms = user.permissions;
+            const permCount = Object.values(perms).filter(v => v).length;
+            const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString('ru-RU') : 'Никогда';
+
+            return `
+            <tr>
+                <td>${user.id}</td>
+                <td><strong>${user.username}</strong></td>
+                <td>${user.full_name || '-'}</td>
+                <td>${user.email || '-'}</td>
+                <td>${lastLogin}</td>
+                <td><span class="badge ${user.is_active ? 'bg-success' : 'bg-danger'}">${user.is_active ? 'Да' : 'Нет'}</span></td>
+                <td><span class="badge bg-info">${permCount} прав</span></td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editUser(${user.id})">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id}, '${user.username}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+        }).join('');
+    }
+
+    // Add user button
+    document.getElementById('add-user-btn').addEventListener('click', () => {
+        editingUserId = null;
+        document.getElementById('modalTitle').textContent = 'Новый пользователь';
+        document.getElementById('user-form').reset();
+        document.getElementById('user-id').value = '';
+        document.getElementById('password').required = true;
+        document.getElementById('password-note').style.display = 'none';
+
+        // Set default permissions for new users
+        document.getElementById('perm-dashboard').checked = true;
+        document.getElementById('perm-parser-status').checked = true;
+        document.getElementById('is-active').checked = true;
+
+        const modal = new bootstrap.Modal(document.getElementById('userModal'));
+        modal.show();
+    });
+
+    // Edit user
+    function editUser(userId) {
+        const user = allUsers.find(u => u.id === userId);
+        if (!user) return;
+
+        editingUserId = userId;
+        document.getElementById('modalTitle').textContent = 'Редактировать пользователя';
+        document.getElementById('user-id').value = user.id;
+        document.getElementById('username').value = user.username;
+        document.getElementById('password').value = '';
+        document.getElementById('password').required = false;
+        document.getElementById('password-note').style.display = 'inline';
+        document.getElementById('full-name').value = user.full_name || '';
+        document.getElementById('email').value = user.email || '';
+        document.getElementById('is-active').checked = user.is_active;
+
+        // Set permissions
+        const p = user.permissions;
+        document.getElementById('perm-dashboard').checked = p.can_view_dashboard;
+        document.getElementById('perm-parser-status').checked = p.can_view_parser_status;
+        document.getElementById('perm-run-parser').checked = p.can_run_parser;
+        document.getElementById('perm-view-settings').checked = p.can_view_settings;
+        document.getElementById('perm-edit-schedules').checked = p.can_edit_schedules;
+        document.getElementById('perm-edit-db').checked = p.can_edit_database_settings;
+        document.getElementById('perm-import-data').checked = p.can_import_data;
+        document.getElementById('perm-manage-users').checked = p.can_manage_users;
+
+        const modal = new bootstrap.Modal(document.getElementById('userModal'));
+        modal.show();
+    }
+
+    // Save user
+    document.getElementById('save-user-btn').addEventListener('click', function () {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const fullName = document.getElementById('full-name').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const isActive = document.getElementById('is-active').checked;
+
+        if (!username) {
+            alert('Введите логин');
+            return;
+        }
+
+        if (!editingUserId && !password) {
+            alert('Введите пароль для нового пользователя');
+            return;
+        }
+
+        const permissions = {
+            can_view_dashboard: document.getElementById('perm-dashboard').checked,
+            can_view_parser_status: document.getElementById('perm-parser-status').checked,
+            can_run_parser: document.getElementById('perm-run-parser').checked,
+            can_view_settings: document.getElementById('perm-view-settings').checked,
+            can_edit_schedules: document.getElementById('perm-edit-schedules').checked,
+            can_edit_database_settings: document.getElementById('perm-edit-db').checked,
+            can_import_data: document.getElementById('perm-import-data').checked,
+            can_manage_users: document.getElementById('perm-manage-users').checked
+        };
+
+        const data = {
+            username,
+            full_name: fullName,
+            email,
+            is_active: isActive,
+            permissions
+        };
+
+        if (password) {
+            data.password = password;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+
+        const url = editingUserId ? `/api/users/${editingUserId}` : '/api/users';
+        const method = editingUserId ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+                    loadUsers();
+                    alert(result.message);
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+                this.disabled = false;
+                this.innerHTML = 'Сохранить';
+            })
+            .catch(err => {
+                alert('Ошибка: ' + err);
+                this.disabled = false;
+                this.innerHTML = 'Сохранить';
+            });
+    });
+
+    // Delete user
+    function deleteUser(userId, username) {
+        if (!confirm(`Удалить пользователя "${username}"?`)) return;
+
+        fetch(`/api/users/${userId}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    loadUsers();
+                    alert(result.message);
+                } else {
+                    alert('Ошибка: ' + result.message);
+                }
+            })
+            .catch(err => alert('Ошибка: ' + err));
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,557 @@
+﻿#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+PRODUCTION OZON PARSER
+- 4 workers (antibot optimization)
+- Selenium-wire with LOCAL proxy (127.0.0.1:8118)
+- Local proxy forwards to Mango with auth
+- IP-based timezone detection
+- Browser recreation every 15-20 products
+- Save to DB every 500 products
+- Excel report with sellers
+- Telegram notification
+"""
+
+import os
+import re
+import time
+import json
+import psycopg2
+import subprocess
+import threading
+import shutil
+import random
+import string
+import psutil
+from queue import Queue
+from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+
+import pandas as pd
+import requests
+
+load_dotenv()
+
+# ============================================================================
+# IP GEOLOCATION & TIMEZONE CACHE
+# ============================================================================
+ip_timezone_cache = {}  # {ip: timezone_offset}
+ip_cache_lock = threading.Lock()
+
+def get_ip_geolocation(ip):
+    """Получить геолокацию по IP адресу"""
+    try:
+        # Используем бесплатный API ip-api.com (без ключа, лимит 45 req/min)
+        response = requests.get(f'http://ip-api.com/json/{ip}?fields=status,country,city,timezone', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'success':
+                return {
+                    'country': data.get('country', 'Russia'),
+                    'city': data.get('city', 'Moscow'),
+                    'timezone': data.get('timezone', 'Europe/Moscow')
+                }
+    except:
+        pass
+    
+    # Fallback на Москву
+    return {'country': 'Russia', 'city': 'Moscow', 'timezone': 'Europe/Moscow'}
+
+def get_timezone_offset(timezone_name):
+    """Конвертировать timezone name в offset для CDP"""
+    # Маппинг популярных российских timezone
+    timezone_offsets = {
+        'Europe/Moscow': -180,           # UTC+3
+        'Europe/Kaliningrad': -120,      # UTC+2
+        'Europe/Samara': -240,           # UTC+4
+        'Asia/Yekaterinburg': -300,      # UTC+5
+        'Asia/Omsk': -360,               # UTC+6
+        'Asia/Krasnoyarsk': -420,        # UTC+7
+        'Asia/Irkutsk': -480,            # UTC+8
+        'Asia/Yakutsk': -540,            # UTC+9
+        'Asia/Vladivostok': -600,        # UTC+10
+        'Asia/Magadan': -660,            # UTC+11
+        'Asia/Kamchatka': -720,          # UTC+12
+    }
+    
+    return timezone_offsets.get(timezone_name, -180)  # Default: Moscow
+
+def get_timezone_for_ip(ip):
+    """Получить timezone offset для IP (с кешированием)"""
+    with ip_cache_lock:
+        if ip in ip_timezone_cache:
+            return ip_timezone_cache[ip]
+    
+    # Получаем геолокацию
+    geo = get_ip_geolocation(ip)
+    timezone_name = geo.get('timezone', 'Europe/Moscow')
+    offset = get_timezone_offset(timezone_name)
+    
+    # Кешируем
+    with ip_cache_lock:
+        ip_timezone_cache[ip] = {
+            'offset': offset,
+            'name': timezone_name,
+            'city': geo.get('city', 'Moscow')
+        }
+    
+    return ip_timezone_cache[ip]
+
+# ============================================================================
+# КОНФИГУРАЦИЯ
+# ============================================================================
+    """Очистить старые профили Chrome (старше max_age_minutes минут)"""
+    try:
+        profiles_dir = Path("C:/Temp/chrome_profiles/ozon")
+        if not profiles_dir.exists():
+            return 0
+        
+        now = time.time()
+        max_age_seconds = max_age_minutes * 60
+        deleted = 0
+        total_size = 0
+        
+        for profile_path in profiles_dir.glob("p*"):
+            if profile_path.is_dir():
+                try:
+                    # Проверяем возраст профиля
+                    profile_age = now - profile_path.stat().st_mtime
+                    
+                    if profile_age > max_age_seconds:
+                        # Считаем размер перед удалением
+                        try:
+                            size = sum(f.stat().st_size for f in profile_path.rglob('*') if f.is_file())
+                            total_size += size
+                        except:
+                            pass
+                        
+                        # Удаляем
+                        shutil.rmtree(profile_path, ignore_errors=True)
+                        deleted += 1
+                except:
+                    pass
+        
+        if deleted > 0:
+            size_mb = total_size / (1024 * 1024)
+            print(f"[CLEANUP] Удалено {deleted} старых профилей ({size_mb:.1f} MB освобождено)")
+        
+        return deleted
+    except Exception as e:
+        print(f"[CLEANUP] Error: {e}")
+        return 0
+
+
+def load_proxies():
+    """Load ROTATING Mango proxy (один прокси, каждый запрос = новый IP)"""
+    with open('proxies_mango_rotating.txt', 'r') as f:
+        line = f.readline().strip()
+    
+    parts = line.split(':')
+    if len(parts) == 4:
+        # ОДИН rotating прокси для ВСЕХ воркеров
+        # Каждый HTTP запрос автоматически получает НОВЫЙ IP!
+        proxy = {
+            'host': parts[0],
+            'port': parts[1],
+            'user': parts[2],
+            'pass': parts[3]
+        }
+        print(f"[OK] ROTATING MangoProxy загружен (каждый запрос = новый IP)")
+        print(f"     Прокси: {parts[0]}:{parts[1]}")
+        return [proxy]  # Возвращаем список с ОДНИМ прокси
+    
+    print("[ERROR] Не удалось загрузить rotating прокси!")
+    return []
+
+
+def load_products():
+    """Загрузить ВСЕ товары из БД"""
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    # Загружаем уникальные SKU (т.к. один SKU может быть у нескольких продавцов)
+    cur.execute("SELECT DISTINCT sku FROM public.prices WHERE sku IS NOT NULL ORDER BY sku")
+    products = [(sku, '') for (sku,) in cur.fetchall()]
+    cur.close()
+    conn.close()
+    print(f"[OK] Products: {len(products)}")
+    return products
+
+
+def generate_excel_report():
+    """Сгенерировать Excel отчет с продавцами в колонках"""
+    print("\n[EXCEL] Generating report...")
+    
+    conn = psycopg2.connect(DB_URL)
+    
+    # Загружаем данные
+    df = pd.read_sql("""
+        SELECT 
+            sku,
+            name,
+            brand,
+            competitor_name,
+            price_card,
+            price_nocard,
+            price_old,
+            created_at
+        FROM public.prices
+        WHERE price_card IS NOT NULL OR price_nocard IS NOT NULL
+        ORDER BY competitor_name, name
+    """, conn)
+    
+    conn.close()
+    
+    if df.empty:
+        print("[EXCEL] No data to report")
+        return None
+    
+    # Создаем pivot table: строки = товары, колонки = продавцы
+    pivot = df.pivot_table(
+        index=['sku', 'name', 'brand'],
+        columns='competitor_name',
+        values='price_card',
+        aggfunc='first'
+    )
+    
+    # Сохраняем в Excel
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"ozon_prices_report_{timestamp}.xlsx"
+    
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        # Лист 1: Pivot по продавцам
+        pivot.to_excel(writer, sheet_name='По продавцам')
+        
+        # Лист 2: Полные данные
+        df.to_excel(writer, sheet_name='Полные данные', index=False)
+        
+        # Лист 3: Статистика
+        stats = pd.DataFrame({
+            'Метрика': [
+                'Всего товаров',
+                'Товаров с ценами',
+                'Уникальных продавцов',
+                'Средняя цена с картой',
+                'Средняя цена без карты'
+            ],
+            'Значение': [
+                len(df),
+                len(df[df['price_card'].notna()]),
+                df['competitor_name'].nunique(),
+                df['price_card'].apply(lambda x: float(re.sub(r'[^\d]', '', str(x))) if pd.notna(x) and x != 'Товар закончился' else 0).mean(),
+                df['price_nocard'].apply(lambda x: float(re.sub(r'[^\d]', '', str(x))) if pd.notna(x) and x != 'Товар закончился' else 0).mean()
+            ]
+        })
+        stats.to_excel(writer, sheet_name='Статистика', index=False)
+    
+    print(f"[EXCEL] Report saved: {filename}")
+    return filename
+
+
+def send_to_telegram(filename, stats_text):
+    """Отправить отчет в Telegram"""
+    print("\n[TG] Sending to Telegram...")
+    
+    try:
+        # Отправляем текст со статистикой
+        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+        data = {
+            'chat_id': TG_CHAT_ID,
+            'text': stats_text,
+            'parse_mode': 'HTML'
+        }
+        response = requests.post(url, data=data)
+        
+        if response.status_code == 200:
+            print("[TG] Message sent")
+        else:
+            print(f"[TG] Error: {response.text}")
+        
+        # Отправляем Excel файл
+        if filename and os.path.exists(filename):
+            url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendDocument"
+            with open(filename, 'rb') as f:
+                files = {'document': f}
+                data = {'chat_id': TG_CHAT_ID}
+                response = requests.post(url, data=data, files=files)
+            
+            if response.status_code == 200:
+                print("[TG] File sent")
+            else:
+                print(f"[TG] Error: {response.text}")
+    
+    except Exception as e:
+        print(f"[TG] Exception: {e}")
+
+
+def kill_all_browsers():
+    """ПРИНУДИТЕЛЬНОЕ УБИЙСТВО ВСЕХ процессов Chrome и Python"""
+    import subprocess
+    try:
+        # Убиваем Chrome
+        subprocess.run(
+            'Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
+            shell=True, capture_output=True, timeout=10
+        )
+        time.sleep(1)
+        
+        # Убиваем Python процессы (кроме текущего)
+        current_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if proc.info['name'] == 'python.exe' and proc.info['pid'] != current_pid:
+                    psutil.Process(proc.info['pid']).kill()
+            except:
+                pass
+        
+        time.sleep(2)
+        print("[CLEANUP] ✅ Все процессы убиты")
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️  Ошибка при убийстве процессов: {e}")
+
+
+def load_products_from_db():
+    """Загрузить все товары из БД"""
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT sku, name 
+        FROM public.prices 
+        WHERE sku IS NOT NULL
+        ORDER BY sku
+    """)
+    products = [(sku, name or '') for (sku, name) in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return products
+
+
+def run_single_batch(batch_products):
+    """Запустить обработку одного батча товаров"""
+    global processed_count, stop_flag, product_queue, results, db_save_counter
+    
+    # Сброс счётчиков
+    processed_count = 0
+    stop_flag = False
+    db_save_counter = 0
+    
+    start_time = time.time()
+    
+    proxies = load_proxies()
+    print(f"[OK] ROTATING MangoProxy загружен (каждый запрос = новый IP)")
+    
+    # Заполняем очередь товарами из батча
+    for idx, (sku, name) in enumerate(batch_products, 1):
+        product_queue.put((idx, sku, name))
+    
+    print(f"\n[INIT] Starting {NUM_WORKERS} workers...\n")
+    workers = []
+    
+    for worker_id in range(NUM_WORKERS):
+        port = DEBUG_PORT_START + worker_id
+        t = threading.Thread(target=worker, args=(worker_id, port, proxies), daemon=False)
+        t.start()
+        workers.append(t)
+        # Небольшая задержка между запуском воркеров
+        time.sleep(2.0)
+    
+    # Ждём завершения всех workers
+    for t in workers:
+        t.join()
+    
+    # Статистика батча
+    elapsed = time.time() - start_time
+    total = len(results)
+    
+    if total > 0:
+        # Подсчёт статусов
+        from collections import Counter
+        status_counts = Counter(r['status'] for r in results)
+        
+        ok_count = status_counts.get('OK', 0)
+        out_of_stock = status_counts.get('OUT_OF_STOCK', 0)
+        no_price = status_counts.get('NO_PRICE', 0)
+        errors = total - ok_count - out_of_stock - no_price
+        
+        print(f"\n{'='*100}")
+        print(f"БАТЧ ЗАВЕРШЁН: {ok_count}/{total} цен найдено ({int(elapsed//60)}m {int(elapsed%60)}s)")
+        print(f"  ✅ OK (цена):          {ok_count:4d} ({ok_count/total*100:.1f}%)")
+        print(f"  📦 OUT_OF_STOCK:       {out_of_stock:4d} ({out_of_stock/total*100:.1f}%)")
+        print(f"  ❌ NO_PRICE:           {no_price:4d} ({no_price/total*100:.1f}%)")
+        print(f"  ⚠️  ERRORS:            {errors:4d} ({errors/total*100:.1f}%)")
+        print(f"{'='*100}\n")
+    
+    return True
+
+
+def run_single_cycle():
+    """DEPRECATED: Старая функция цикла парсинга (не используется)"""
+    # Эта функция больше не используется, заменена на run_single_batch()
+    pass
+
+
+def main():
+    global processed_count, stop_flag, results, product_queue, last_processed_skus, batch_complete
+    
+    print("=" * 100)
+    print("OZON PRODUCTION PARSER - РЕЖИМ НЕПРЕРЫВНЫХ БАТЧЕЙ")
+    print(f"СТРАТЕГИЯ: {MAX_PRODUCTS_PER_BATCH} товаров -> сохранить -> убить всё -> БЕЗ ПАУЗ -> новые воркеры -> следующие {MAX_PRODUCTS_PER_BATCH}")
+    print(f"СКОРОСТЬ: Максимальная! Без задержек между батчами!")
+    print("=" * 100)
+    
+    batch_number = 1
+    total_parsed = 0
+    all_products = load_products_from_db()  # Загружаем все товары один раз
+    
+    # РАНДОМИЗАЦИЯ ПОРЯДКА ТОВАРОВ для обхода антибота
+    print(f"\n[INIT] Загружено {len(all_products)} товаров")
+    print("[RANDOMIZE] Перемешиваем товары для естественного поведения...")
+    random.shuffle(all_products)
+    print("[RANDOMIZE] ✅ Товары перемешаны!\n")
+    
+    current_offset = 0  # С какого товара начинаем
+    
+    while current_offset < len(all_products):
+        print(f"\n{'='*100}")
+        print(f"\n[BATCH #{batch_number}] Товары {current_offset + 1} - {min(current_offset + MAX_PRODUCTS_PER_BATCH, len(all_products))}")
+        print(f"{'='*100}\n")
+        
+        # Очищаем состояние перед новым батчем
+        results = []
+        product_queue = Queue()
+        processed_count = 0
+        stop_flag = False
+        batch_complete = False
+        last_processed_skus = []
+        
+        # Берём следующие N товаров
+        batch_products = all_products[current_offset:current_offset + MAX_PRODUCTS_PER_BATCH]
+        
+        # Запускаем обработку батча
+        print(f"[INIT] Загружено {len(batch_products)} товаров для обработки\n")
+        success = run_single_batch(batch_products)
+        
+        if not success:
+            print("[ERROR] Ошибка при обработке батча")
+            break
+        
+        # Считаем обработанные товары из results (не из processed_count - он сбрасывался!)
+        batch_processed = len(results)
+        total_parsed += batch_processed
+        
+        # Сохраняем последние N SKU для продолжения
+        if len(results) >= RESUME_FROM_LAST_N:
+            last_processed_skus = [r['sku'] for r in results[-RESUME_FROM_LAST_N:]]
+        
+        print(f"\n{'='*100}")
+        print(f"✅ БАТЧ #{batch_number} ЗАВЕРШЁН")
+        print(f"   Обработано: {batch_processed} товаров")
+        print(f"   Всего обработано: {total_parsed}/{len(all_products)}")
+        print(f"{'='*100}\n")
+        
+        # КРИТИЧНО: ПРИНУДИТЕЛЬНОЕ УБИЙСТВО ВСЕХ ПРОЦЕССОВ СРАЗУ!
+        print(f"[CLEANUP] 🔪 УБИВАЕМ ВСЁ: процессы Python и Chrome...")
+        kill_all_browsers()
+        time.sleep(3)  # Даём время процессам умереть
+        
+        print(f"[CLEANUP] 🗑️  Удаляем ВСЕ профили Chrome...")
+        clean_old_chrome_profiles(max_age_minutes=0)  # Удаляем ВСЕ профили
+        time.sleep(2)  # Даём время файловой системе
+        
+        # Проверяем что профили удалены
+        profiles_dir = Path("C:/Temp/chrome_profiles/ozon")
+        remaining_profiles = list(profiles_dir.glob("p*")) if profiles_dir.exists() else []
+        if remaining_profiles:
+            print(f"[WARNING] ⚠️  Осталось {len(remaining_profiles)} профилей! Удаляем повторно...")
+            for profile in remaining_profiles:
+                try:
+                    shutil.rmtree(profile, ignore_errors=True)
+                except:
+                    pass
+            time.sleep(2)
+        else:
+            print(f"[CLEANUP] ✅ Все профили удалены")
+        
+        # Теперь сохраняем результаты в БД
+        if results:
+            print(f"\n[DB] 💾 Сохранение {len(results)} товаров в базу данных...")
+            saved = save_batch_to_db(results)
+            print(f"[DB] ✅ Сохранено {saved} товаров")
+        
+        # Проверка: есть ли ещё товары?
+        if current_offset + MAX_PRODUCTS_PER_BATCH >= len(all_products):
+            print("[COMPLETE] Все товары обработаны!")
+            break
+        
+        # Сдвигаем offset: следующие 100 товаров БЕЗ перекрытия
+        current_offset += MAX_PRODUCTS_PER_BATCH
+        
+        # БЕЗ ПАУЗ! Сразу следующий батч!
+        print(f"{'='*100}")
+        print(f"🚀 СЛЕДУЮЩИЙ БАТЧ: товары {current_offset + 1} - {min(current_offset + MAX_PRODUCTS_PER_BATCH, len(all_products))}")
+        print(f"   Запускаем новые воркеры...")
+        print(f"{'='*100}\n")
+        
+        time.sleep(2)  # Минимальная пауза 2 сек для системы
+        batch_number += 1
+    
+    print(f"\n{'='*100}")
+    print(f"\n[COMPLETE] ВСЕ БАТЧИ ЗАВЕРШЕНЫ!")
+    print(f"   Всего батчей: {batch_number}")
+    print(f"   Всего товаров обработано: {total_parsed}/{len(all_products)}")
+    print(f"{'='*100}\n")
+    
+    # Финальная проверка БД
+    print("[INFO] Проверяем сколько цен в базе данных...")
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM public.prices WHERE price_card IS NOT NULL")
+        count = cur.fetchone()[0]
+        print(f"[INFO] ✅ Цен в БД: {count}/{len(all_products)}")
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR] Не удалось проверить БД: {e}")
+
+
+
+
+if __name__ == '__main__':
+    print("DEBUG: Starting parser...")
+    
+    # ============================================================================
+    # ВАЖНО: Перед запуском парсера нужно запустить 3proxy!
+    # ============================================================================
+    print("\n" + "="*70)
+    print("⚠️  ВАЖНО: Убедитесь что 3proxy запущен!")
+    print("="*70)
+    print("\nЕсли 3proxy НЕ запущен:")
+    print("   1. Откройте новое окно терминала")
+    print("   2. Запустите: start_3proxy.bat")
+    print("   3. Дождитесь сообщения '3proxy started'")
+    print("\n3proxy должен слушать на 127.0.0.1:8118 (SOCKS5)")
+    print("="*70)
+    
+    # Автоматический запуск без ожидания ввода, так как 3proxy уже запущен
+    time.sleep(2)
+    
+    # ============================================================================
+    # Запускаем основной парсер
+    # ============================================================================
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n[STOP] Ostanovleno polzovatelem")
+    except Exception as e:
+        print(f"\n\n[ERROR]: {e}")
+        import traceback
+        traceback.print_exc()

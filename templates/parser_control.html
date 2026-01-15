@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Управление парсером - OZON Parser{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="page-title"><i class="bi bi-play-circle"></i> Управление парсером</h1>
+        <p class="page-subtitle">Запуск и контроль процесса парсинга Ozon</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="main-card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="bi bi-terminal"></i> Контроль парсера</h4>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-3 mb-4">
+                    <button id="start-parser-btn" class="btn btn-success btn-lg btn-premium">
+                        <i class="bi bi-play-fill"></i> Запустить парсер принудительно
+                    </button>
+                </div>
+
+                <div class="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Парсинг запущен.</strong> Ожидайте отчет в Telegram.
+                </div>
+
+                <div id="status-message"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('start-parser-btn').addEventListener('click', function () {
+        if (!confirm('Запустить парсер Ozon?')) return;
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
+
+        fetch('/api/parser/start', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('status-message');
+                if (data.status === 'success') {
+                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
+                } else {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                }
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить парсер принудительно';
+            })
+            .catch(err => {
+                document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить парсер принудительно';
+            });
+    });
+</script>
+{% endblock %}
