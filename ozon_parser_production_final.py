@@ -1,21 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os,re,time,json,psycopg2,subprocess,threading,shutil,random,string,psutil
+import os, sys, time, random, json, re, threading, requests, shutil, string, subprocess, psutil
 from queue import Queue
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
+
+import psycopg2
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+
+import undetected_chromedriver as uc
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from dotenv import load_dotenv
 import pandas as pd
-import requests
-import check_violations
+
+# Optional: scheduler module
+try:
+    import scheduler
+except ImportError:
+    scheduler = None
+
+# Optional: check_violations module
+try:
+    import check_violations
+except ImportError:
+    check_violations = None
 
 load_dotenv()
 
@@ -55,13 +70,13 @@ TG_CHAT_ID=os.getenv('TG_CHAT_ID')
 CHROME_PATH=r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 DEBUG_PORT_START=9222
 NUM_WORKERS=30
-BATCH_SIZE=500
+BATCH_SIZE=1000
 USE_HEADLESS=True
-MAX_PRODUCTS_PER_BATCH=3200
+MAX_PRODUCTS_PER_BATCH=10000
 RESUME_FROM_LAST_N=0
 DELAY_BETWEEN_PRODUCTS=(3.0,7.0)
-BATCH_PAUSE_INTERVAL=100
-BATCH_PAUSE_DURATION=(5.0,10.0)
+BATCH_PAUSE_INTERVAL=20
+BATCH_PAUSE_DURATION=(10.0,30.0)
 MAX_RETRIES_PER_PRODUCT=3
 
 
@@ -82,102 +97,230 @@ last_processed_skus=[]
 antibot_detected=False
 antibot_lock=threading.Lock()
 
+def generate_random_user_agent_full():
+    chrome_versions = [
+        ('144.0.7559.59', '144'), ('131.0.6778.85', '131'), 
+        ('130.0.6723.116', '130'), ('129.0.6668.100', '129'),
+        ('128.0.6613.138', '128'), ('127.0.6533.119', '127')
+    ]
+    edge_versions = [
+        ('131.0.2903.70', '131'), ('130.0.2849.80', '130'),
+        ('129.0.2792.89', '129')
+    ]
+    
+    is_edge = random.random() < 0.2
+    if is_edge:
+        ver, major = random.choice(edge_versions)
+        ua = f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Safari/537.36 Edg/{ver}'
+        brand = '"Microsoft Edge";v="%s", "Chromium";v="%s", "Not?A_Brand";v="99"' % (major, major)
+    else:
+        ver, major = random.choice(chrome_versions)
+        ua = f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver} Safari/537.36'
+        brand = '"Google Chrome";v="%s", "Chromium";v="%s", "Not?A_Brand";v="99"' % (major, major)
+        
+    return {
+        'ua': ua, 
+        'major': major, 
+        'brand': brand, 
+        'full_ver': ver, 
+        'platform': 'Windows',
+        'platform_version': '13.0.0', # Win 11 modern
+        'architecture': 'x86',
+        'model': '',
+        'bitness': '64'
+    }
+
 def generate_random_user_agent():
-    chrome_versions=['131.0.6778.86','131.0.6778.85','131.0.6778.70','131.0.6778.69']
-    chrome_ver=random.choice(chrome_versions)
-    return f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_ver} Safari/537.36'
+    return generate_random_user_agent_full()['ua']
 
-def start_chrome(port,unique_id=None,user_agent=None,proxy_host=None,proxy_port=None,proxy_user=None,proxy_pass=None):
-    if unique_id is None:
-        unique_id=port
-    profile=f"C:\\Temp\\chrome_profiles\\ozon\\persistent_p{port}"
+def start_browser_uc(port, unique_id, ua_info, proxy_host, proxy_port, proxy_user, proxy_pass, worker_id):
+    # USE UNIQUE TEMPORARY PROFILE
+    profile=f"C:\\Temp\\chrome_profiles\\ozon\\tmp_{unique_id}"
     Path(profile).mkdir(parents=True,exist_ok=True)
-    if not user_agent:
-        user_agent=generate_random_user_agent()
-    desktop_resolutions=['1920,1080','1366,768','1536,864','1440,900','1600,900','2560,1440','1280,720']
-    window_size=random.choice(desktop_resolutions)
-    cmd=[CHROME_PATH,f"--remote-debugging-port={port}",f"--user-data-dir={profile}",f"--user-agent={user_agent}",f"--window-size={window_size}",f"--proxy-server=http://{proxy_host}:{proxy_port}",f"--proxy-bypass-list=<-loopback>","--no-sandbox","--disable-blink-features=AutomationControlled","--disable-features=IsolateOrigins,site-per-process","--disable-web-security","--no-first-run","--no-default-browser-check","--disable-popup-blocking","--disable-infobars","--disable-notifications","--disable-default-apps","--lang=ru-RU","--disable-dev-shm-usage","--disable-gpu","--disable-software-rasterizer","--disable-component-extensions-with-background-pages","--disable-background-networking","--disable-sync","--disable-translate","--hide-scrollbars","--metrics-recording-only","--mute-audio","--no-pings","--safebrowsing-disable-auto-update","--disable-domain-reliability","--disable-background-timer-throttling","--disable-backgrounding-occluded-windows","--disable-renderer-backgrounding","--disable-ipc-flooding-protection","--blink-settings=imagesEnabled=false"]
+    
+    user_agent = ua_info['ua']
+    brand = ua_info['brand']
+    
+    options = uc.ChromeOptions()
+    # Basics
+    options.add_argument(f"--user-data-dir={profile}")
+    options.add_argument(f"--user-agent={user_agent}")
+    options.add_argument(f"--proxy-server=http://{proxy_host}:{proxy_port}")
+    
+    # Anti-Fingerprinting & Privacy
+    # Remove --disable-features and --disable-web-security as they are detectable
+    options.add_argument("--lang=ru-RU")
+    
+    # WebRTC Protection
+    options.add_argument("--disable-webrtc")
+    options.add_argument("--enforce-webrtc-ip-permission-check")
+    
+    # Performance & Stealth
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-notifications")
+    
     if USE_HEADLESS:
-        cmd.insert(6,"--headless=new")
-    print(f"[PROXY] Chrome будет использовать HTTP прокси: {proxy_host}:{proxy_port}")
-    proc=subprocess.Popen(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    return proc,profile
+        # Use the newer, more stealthy headless mode if requested
+        options.add_argument("--headless=new")
+    
+    # Resolution & Hiding
+    desktop_resolutions=['1920,1080','1366,768','1536,864','1440,900','1600,900','1280,720']
+    res = random.choice(desktop_resolutions)
+    options.add_argument(f"--window-size={res}")
+    # Diagnostic: Move window to (0,0) to see if off-screen was the trigger
+    options.add_argument("--window-position=0,0")
 
-def check_current_ip(driver,worker_id):
-    try:
-        driver.execute_script("window.open('https://httpbin.org/ip','_blank');")
-        time.sleep(1)
-        driver.switch_to.window(driver.window_handles[-1])
+    max_start_retries = 3
+    driver = None
+    for attempt in range(max_start_retries):
         try:
-            WebDriverWait(driver,10).until(lambda d:d.find_element(By.TAG_NAME,'body').text.strip()!='')
-        except:
-            print(f"[W{worker_id}] ⏳ Timeout waiting for IP check")
-        body_text=driver.find_element(By.TAG_NAME,'body').text
-        try:
-            ip_data=json.loads(body_text)
-            ip=ip_data.get('origin','Unknown').split(',')[0].strip()
-        except json.JSONDecodeError:
-            import re
-            ip_match=re.search(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}',body_text)
-            if ip_match:
-                ip=ip_match.group(0)
+            print(f"[W{worker_id}] 🚀 Attempt {attempt+1} to start browser on port {port}...")
+            driver = uc.Chrome(
+                options=options,
+                driver_executable_path=None, # Auto-download
+                browser_executable_path=CHROME_PATH,
+                version_main=None,
+                port=port,
+                suppress_welcome=True
+            )
+            if driver:
+                break
+        except Exception as e:
+            print(f"[W{worker_id}] ❌ Start attempt {attempt+1} failed: {e}")
+            if attempt < max_start_retries - 1:
+                # Close potential orphan chrome from failed attempt
+                try:
+                    subprocess.run(f'taskkill /F /IM chrome.exe /FI "WINDOWTITLE eq tmp_{unique_id}*"', shell=True, capture_output=True)
+                except: pass
+                time.sleep(random.uniform(3, 7))
             else:
-                ip='Error'
-        driver.close()
-        driver.switch_to.window(driver.window_handles[0])
-        return ip
-    except Exception as e:
-        print(f"[W{worker_id}] ⚠️ IP Check Error: {e}")
+                raise e
+
+    try:
+        timezone_offset = -180  # Default to Moscow
         try:
-            if len(driver.window_handles)>1:
+            current_ip = check_current_ip(driver, worker_id)
+            if current_ip and current_ip != 'Error':
+                tz_info = get_timezone_for_ip(current_ip)
+                timezone_offset = tz_info['offset']
+                print(f"[W{worker_id}] 🌍 IP: {current_ip} → {tz_info['city']} (UTC{timezone_offset//60:+d})")
+            else:
+                print(f"[W{worker_id}] ⚠️ IP not detected, using Moscow TZ")
+        except Exception as e:
+            print(f"[W{worker_id}] ⚠️ Timezone detect failed: {e}")
+        
+        # Obsidian Stealth: Synchronize High-Entropy Client Hints
+        full_version_list = ua_info['brand'].replace(';v=', ',').split(', ')
+        brands_js = []
+        for b in full_version_list:
+            parts = b.split(';')
+            if len(parts) == 2:
+                name = parts[0].strip('"')
+                ver = parts[1].replace('v=', '').strip('"')
+                brands_js.append({'brand': name, 'version': ver})
+
+        injection_script = f'''
+            // Remove detectable overrides, let UC handle basic properties
+            // Only spoof required environmental consistency
+            Object.defineProperty(navigator, 'languages', {{get: () => ['ru-RU', 'ru', 'en-US', 'en']}});
+            Date.prototype.getTimezoneOffset = function() {{ return {timezone_offset}; }};
+            
+            if (navigator.userAgentData) {{
+                const original = navigator.userAgentData;
+                Object.defineProperty(navigator, 'userAgentData', {{
+                    get: () => ({{
+                        ...original,
+                        brands: {json.dumps(brands_js)},
+                        mobile: false,
+                        platform: "Windows",
+                        getHighEntropyValues: (hints) => Promise.resolve({{
+                            brands: {json.dumps(brands_js)},
+                            mobile: false,
+                            platform: "Windows",
+                            platformVersion: "{ua_info['platform_version']}",
+                            architecture: "{ua_info['architecture']}",
+                            model: "{ua_info['model']}",
+                            uaFullVersion: "{ua_info['full_ver']}",
+                            bitness: "{ua_info['bitness']}",
+                            fullVersionList: {json.dumps(brands_js)}
+                        }})
+                    }})
+                }});
+            }}
+        '''
+        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': injection_script})
+        
+        # Pure UC: Let the browser handle headers naturally via User-Agent
+        # No Network.setExtraHTTPHeaders
+        
+        # Simplified Fast Warming for Residential Proxies
+        print(f"[W{worker_id}] 🧊 Fast Start...")
+        try:
+            print(f"[W{worker_id}] 🏠 Landing on Ozon Home...")
+            driver.get("https://www.ozon.ru")
+            time.sleep(random.uniform(5, 10))
+            
+            if "доступ ограничен" in driver.title.lower():
+                 print(f"[W{worker_id}] ⚠️ Direct block on Ozon Home. Attempting search bypass...")
+                 driver.get("https://www.ozon.ru/search/?text=iphone")
+                 time.sleep(10)
+            else:
+                 print(f"[W{worker_id}] ✅ Ready!")
+                 
+        except Exception as e:
+            print(f"[W{worker_id}] ⚠️ Warmup error: {e}")
+            
+        return driver, profile
+    except Exception as e:
+        print(f"[W{worker_id}] ❌ Failed to start UC: {e}")
+        return None, None
+
+def check_current_ip(driver, worker_id):
+    """Robust IP detection with multi-service fallbacks."""
+    services = [
+        'https://api.ipify.org?format=json',
+        'https://ipinfo.io/json',
+        'https://httpbin.org/ip'
+    ]
+    
+    for service in services:
+        try:
+            print(f"[W{worker_id}] 🔍 Checking IP via {service}...")
+            driver.execute_script(f"window.open('{service}', '_blank');")
+            time.sleep(2)
+            driver.switch_to.window(driver.window_handles[-1])
+            
+            try:
+                # Wait for any text to appear in body
+                WebDriverWait(driver, 10).until(lambda d: d.find_element(By.TAG_NAME, 'body').text.strip() != '')
+                body_text = driver.find_element(By.TAG_NAME, 'body').text
+                
+                # Cleanup before return
                 driver.close()
                 driver.switch_to.window(driver.window_handles[0])
-        except:
-            pass
-        return 'Error'
 
-def attach_selenium_with_proxy(port,proxy_host,proxy_port,proxy_user,proxy_pass,worker_id=0):
-    for attempt in range(3):
-        try:
-            opts=Options()
-            opts.add_experimental_option("debuggerAddress",f"127.0.0.1:{port}")
-            driver=webdriver.Chrome(options=opts)
-            current_ip=None
-            timezone_offset=-180
-            timezone_name='Europe/Moscow'
-            city_name='Moscow'
-            try:
-                current_ip=check_current_ip(driver,worker_id)
-                if current_ip and current_ip!='Error' and current_ip!='Unknown':
-                    tz_info=get_timezone_for_ip(current_ip)
-                    timezone_offset=tz_info['offset']
-                    timezone_name=tz_info['name']
-                    city_name=tz_info['city']
-                    print(f"[W{worker_id}] 🌍 IP: {current_ip} → {city_name} ({timezone_name}, UTC{timezone_offset//60:+d})")
-                else:
-                    print(f"[W{worker_id}] ⚠️ Не удалось определить IP, используем Moscow timezone")
+                # Extract IP from common patterns
+                ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', body_text)
+                if ip_match:
+                    ip = ip_match.group(1)
+                    return ip
             except Exception as e:
-                print(f"[W{worker_id}] ⚠️ Ошибка определения timezone: {e}")
-            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument',{'source':f'''Object.defineProperty(navigator,'webdriver',{{get:()=>undefined}});Object.defineProperty(navigator,'languages',{{get:()=>['ru-RU','ru']}});Object.defineProperty(navigator,'language',{{get:()=>'ru-RU'}});Date.prototype.getTimezoneOffset=function(){{return {timezone_offset};}};window.chrome={{runtime:{{}}}};const origQuery=window.navigator.permissions.query;window.navigator.permissions.query=(params)=>(params.name==='notifications'?Promise.resolve({{state:'prompt'}}):origQuery(params));Object.defineProperty(navigator,'plugins',{{get:()=>[{{name:'Chrome PDF Plugin',filename:'internal-pdf-viewer',description:'Portable Document Format'}},{{name:'Chrome PDF Viewer',filename:'mhjfbmdgcfjbbpaeojofohoefgiehjai',description:'Portable Document Format'}},{{name:'Native Client',filename:'internal-nacl-plugin',description:'Native Client Executable'}}]}});delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;const originalError=console.error;console.error=function(){{if(arguments[0]&&typeof arguments[0]==='string'&&arguments[0].includes('automation')){{return;}}return originalError.apply(console,arguments);}};'''})
-            # Aggressive blocking of all media types to save traffic
-            driver.execute_cdp_cmd('Network.setBlockedURLs',{'urls':['*.jpg','*.jpeg','*.png','*.gif','*.webp','*.svg','*.ico','*.mp4','*.webm','*.woff','*.woff2','*.ttf','*.otf','*google-analytics*','*yandex.ru/metrika*','*doubleclick*','*facebook*','*vk.com*','*mail.ru*','*criteo*','*hotjar*','*mc.yandex.ru*','*ads*']})
-            driver.execute_cdp_cmd('Network.setExtraHTTPHeaders',{'headers':{'Accept-Language':'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7','Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8','Accept-Encoding':'gzip, deflate, br','Cache-Control':'max-age=0','sec-ch-ua':'"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"','sec-ch-ua-mobile':'?0','sec-ch-ua-platform':'"Windows"','Sec-Fetch-Dest':'document','Sec-Fetch-Mode':'navigate','Sec-Fetch-Site':'none','Sec-Fetch-User':'?1','Upgrade-Insecure-Requests':'1'}})
-            try:
-                driver.get('https://www.ozon.ru')
-                time.sleep(random.uniform(1.5,3.0))
-                random_cookies=[{'name':'__Secure-ab-group','value':str(random.randint(0,999)),'domain':'.ozon.ru','path':'/','secure':True},{'name':'__Secure-user-id','value':f"{random.randint(10000000,99999999)}",'domain':'.ozon.ru','path':'/','secure':True},{'name':'abt_data','value':f"{random.randint(1000,9999)}.{random.randint(1000,9999)}",'domain':'.ozon.ru','path':'/','secure':False}]
-                for cookie in random_cookies:
-                    try:
-                        driver.add_cookie(cookie)
-                    except:
-                        pass
-            except:
-                pass
-            return driver
-        except:
-            if attempt<2:
-                time.sleep(0.5)
-    return None
+                print(f"[W{worker_id}] ⚠️ Service {service} failed or timed out: {e}")
+                if len(driver.window_handles) > 1:
+                    driver.close()
+                    driver.switch_to.window(driver.window_handles[0])
+                continue
+        except Exception as e:
+            print(f"[W{worker_id}] ⚠️ IP check technical error ({service}): {e}")
+            if len(driver.window_handles) > 1:
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0])
+
+    return 'Error'
+
+# Function attach_selenium_with_proxy removed as we use start_browser_uc directly
 
 def extract_prices(driver,sku,worker_id):
     try:
@@ -270,10 +413,40 @@ def extract_prices(driver,sku,worker_id):
         if not price_block:
             if unavailable:
                 return {'price_card':'Товара нет в наличии','price_nocard':'Товара нет в наличии','price_old':'','is_antibot':False,'seller_name':seller_name,'product_name':product_name}
-            antibot_markers=['Проверка безопасности','Checking your browser','cloudflare','captcha','Пройдите проверку']
-            page_text=driver.page_source.lower()
-            is_antibot=any(marker.lower() in page_text for marker in antibot_markers)
-            return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':is_antibot,'seller_name':seller_name,'product_name':product_name}
+        # Detection Logic
+        antibot_markers=['Проверка безопасности','Checking your browser','cloudflare','captcha','Пройдите проверку','Доступ ограничен','access restricted','вы робот','🤖','ограничение доступа']
+        
+        page_source_lower=driver.page_source.lower()
+        
+        # Check title first - it's the fastest
+        try:
+            if "доступ ограничен" in driver.title.lower() or "ограничение доступа" in driver.title.lower():
+                print(f"[W{worker_id}] 🤖 BLOCK DETECTED BY TITLE")
+                return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':True,'seller_name':None,'product_name':None}
+        except:
+            pass
+            
+        is_antibot=any(marker.lower() in page_source_lower for marker in antibot_markers)
+        if not is_antibot:
+            try:
+                # Double check body text visibility
+                body_text = driver.find_element(By.TAG_NAME,'body').text.lower()
+                is_antibot = any(marker.lower() in body_text for marker in antibot_markers)
+            except:
+                pass
+
+        if is_antibot:
+            print(f"[W{worker_id}] 🤖 BLOCK DETECTED BY CONTENT")
+            return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':True,'seller_name':None,'product_name':None}
+
+        # Human-like interaction: small scroll
+        try:
+            if random.random() > 0.5:
+                scroll_amount = random.randint(200, 500)
+                driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+                time.sleep(random.uniform(0.3, 0.7))
+        except:
+            pass
         txt=re.sub(r'\s+',' ',price_block.text.replace('\n',' ').strip())
         price_re=re.compile(r'[\d\s]+₽')
         low=txt.lower()
@@ -351,29 +524,43 @@ def save_batch_to_db(batch):
 def worker(worker_id,port,proxies):
     global db_save_counter,processed_count,stop_flag,antibot_detected,antibot_lock,product_queue
     driver=None
-    proc=None
     proxy_rotation=0
     local_batch=[]
     worker_products_count=0
     browser_products_count=0
     print(f"[W{worker_id}] 🚀 Запускаем воркер на порту {port}...")
     def create_browser():
-        nonlocal proc,driver
-        proxy_base=proxies[0]
+        nonlocal driver
+        # Generate unique session ID for this worker/browser instance
+        session_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        # MangoProxy session format: user-session-ID
+        proxy_user = proxies['user']
+        if "-session-" not in proxy_user:
+            proxy_user = f"{proxy_user}-session-{session_id}"
+            
         unique_id=int(time.time()*1000)+worker_id+browser_products_count
-        proc,profile=start_chrome(port,unique_id,proxy_host="127.0.0.1",proxy_port=8118)
-        if not proc:
-            print(f"[W{worker_id}] ❌ Не удалось запустить Chrome на порту {port}")
-            return False
-        print(f"[W{worker_id}] ⏳ Chrome запущен, подключаем Selenium с прокси...")
-        time.sleep(2)
-        driver=attach_selenium_with_proxy(port,proxy_base['host'],proxy_base['port'],proxy_base['user'],proxy_base['pass'],worker_id)
+        ua_info = generate_random_user_agent_full()
+        
+        # Use worker-specific proxy port for sticky sessions
+        proxy_port = 8118 + worker_id
+        
+        # start_browser_uc now returns the driver directly
+        driver, profile = start_browser_uc(
+            port=port,
+            unique_id=unique_id,
+            ua_info=ua_info,
+            proxy_host="127.0.0.1",
+            proxy_port=proxy_port,
+            proxy_user=proxy_user,
+            proxy_pass=proxies['pass'],
+            worker_id=worker_id
+        )
+        
         if not driver:
-            print(f"[W{worker_id}] ❌ Не удалось подключить Selenium на порту {port}")
-            if proc:
-                proc.terminate()
+            print(f"[W{worker_id}] ❌ Не удалось запустить UC на порту {port}")
             return False
-        print(f"[W{worker_id}] ✅ Браузер готов к работе!")
+            
+        print(f"[W{worker_id}] ✅ БРАУЗЕР ГОТОВ (UC + Session: {session_id})")
         return True
     if not create_browser():
         return
@@ -490,26 +677,29 @@ def worker(worker_id,port,proxies):
                     batch_pause=random.uniform(BATCH_PAUSE_DURATION[0],BATCH_PAUSE_DURATION[1])
                     print(f"[W{worker_id}] 🛑 БАТЧ-ПАУЗА {batch_pause:.1f}с после {worker_products_count} товаров")
                     time.sleep(batch_pause)
-                recreate_threshold=random.randint(15,20)
-                if browser_products_count>=recreate_threshold:
-                    print(f"[W{worker_id}] 🔄 Пересоздаем браузер после {browser_products_count} товаров (новый fingerprint)")
+                
+                # Check if we need to recreate browser
+                recreate_threshold=random.randint(8,12)
+                should_recreate = browser_products_count>=recreate_threshold or status == 'ANTIBOT'
+                
+                if should_recreate:
+                    if status == 'ANTIBOT':
+                        cooldown = random.uniform(30.0, 60.0)
+                        print(f"[W{worker_id}] 🤖 ПАУЗА ОХЛАЖДЕНИЯ {cooldown:.1f}с из-за ANTIBOT")
+                        time.sleep(cooldown)
+                    
+                    print(f"[W{worker_id}] 🔄 Пересоздаем браузер ({browser_products_count} тов., статус: {status})")
                     try:
                         if driver:
+                            print(f"[W{worker_id}] 🛑 Закрываем старый браузер...")
                             driver.quit()
-                            time.sleep(0.5)
-                    except:
-                        pass
-                    try:
-                        if proc:
-                            proc.kill()
-                            time.sleep(0.5)
+                            time.sleep(1.0)
                     except:
                         pass
                     browser_products_count=0
                     if not create_browser():
                         print(f"[W{worker_id}] ❌ Не удалось пересоздать браузер, завершаем воркер")
                         break
-                    print(f"[W{worker_id}] ✅ Браузер пересоздан, продолжаем работу")
             except TimeoutException:
                 with retry_lock:
                     attempt_count=retry_counts.get(sku,0)
@@ -631,16 +821,17 @@ def clean_old_chrome_profiles(max_age_minutes=30):
 
 def load_proxies():
     # Now reading from upstreams.txt to single source truth
-    with open('upstreams.txt','r') as f:
-        line=f.readline().strip()
-    parts=line.split(':')
-    if len(parts)==4:
-        proxy={'host':parts[0],'port':parts[1],'user':parts[2],'pass':parts[3]}
-        print(f"[OK] ROTATING MangoProxy загружен (каждый запрос = новый IP)")
-        print(f"     Прокси: {parts[0]}:{parts[1]}")
-        return [proxy]
-    print("[ERROR] Не удалось загрузить rotating прокси!")
-    return []
+    try:
+        with open('upstreams.txt','r') as f:
+            line=f.readline().strip()
+        parts=line.split(':')
+        if len(parts)==4:
+            proxy={'host':parts[0],'port':parts[1],'user':parts[2],'pass':parts[3]}
+            print(f"[OK] MangoProxy template loaded: {parts[0]}:{parts[1]}")
+            return proxy
+    except Exception as e:
+        print(f"[ERROR] Не удалось загрузить прокси: {e}")
+    return None
 
 def load_products_from_db():
     conn=psycopg2.connect(DB_URL)
@@ -855,20 +1046,41 @@ def send_to_telegram(filename,stats_text):
 
 def kill_all_browsers():
     import subprocess
+    import glob
     try:
-        subprocess.run('Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',shell=True,capture_output=True,timeout=10)
-        time.sleep(1)
-        current_pid=os.getpid()
-        for proc in psutil.process_iter(['pid','name']):
+        # Kill all Chrome and Chromedriver instances
+        print("[CLEANUP] 🔪 Killing Chrome and Chromedriver processes...")
+        subprocess.run('taskkill /F /IM chrome.exe /T', shell=True, capture_output=True, timeout=10)
+        subprocess.run('taskkill /F /IM chromedriver.exe /T', shell=True, capture_output=True, timeout=10)
+        
+        # Kill all orphan python workers
+        current_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'name']):
             try:
-                if proc.info['name']=='python.exe' and proc.info['pid']!=current_pid:
+                if proc.info['name'] == 'python.exe' and proc.info['pid'] != current_pid:
+                    # Only kill if it looks like a worker or part of this project
+                    # For safety, we kill all other python processes in this context
                     psutil.Process(proc.info['pid']).kill()
             except:
                 pass
-        time.sleep(2)
-        print("[CLEANUP] ✅ Все процессы убиты")
+        
+        # Clear Logs
+        print("[CLEANUP] 📝 Clearing logs and temporary files...")
+        if os.path.exists("proxy_log.txt"):
+            with open("proxy_log.txt", "w") as f:
+                f.write(f"--- Log cleared at {datetime.now()} ---\n")
+        
+        # Clear Debug HTML files
+        debug_files = glob.glob("debug_html_*.html")
+        for f in debug_files:
+            try:
+                os.remove(f)
+            except:
+                pass
+                
+        print("[CLEANUP] ✅ Все процессы убиты, логи очищены.")
     except Exception as e:
-        print(f"[CLEANUP] ⚠️ Ошибка при убийстве процессов: {e}")
+        print(f"[CLEANUP] ⚠️ Ошибка при выполнении очистки: {e}")
 
 def run_single_batch(batch_products):
     global processed_count,stop_flag,product_queue,results,db_save_counter
@@ -889,7 +1101,9 @@ def run_single_batch(batch_products):
         t=threading.Thread(target=worker,args=(worker_id,port,proxies),daemon=True)
         t.start()
         workers.append(t)
-        time.sleep(0.5)
+        # Stagger startup to avoid simultaneous requests from multiple workers
+        # Adjusted for 30 workers to be fast but stable
+        time.sleep(random.uniform(2.0, 4.0))
     for t in workers:
         t.join()
     elapsed=time.time()-start_time
@@ -951,21 +1165,22 @@ def main():
         print(f"[CLEANUP] 🔪 УБИВАЕМ ВСЁ: процессы Python и Chrome...")
         kill_all_browsers()
         time.sleep(3)
-        print(f"[CLEANUP] 🗑️ Удаляем ВСЕ профили Chrome...")
-        clean_old_chrome_profiles(max_age_minutes=0)
-        time.sleep(2)
-        profiles_dir=Path("C:/Temp/chrome_profiles/ozon")
-        remaining_profiles=list(profiles_dir.glob("p*")) if profiles_dir.exists() else []
-        if remaining_profiles:
-            print(f"[WARNING] ⚠️ Осталось {len(remaining_profiles)} профилей! Удаляем повторно...")
-            for profile in remaining_profiles:
-                try:
-                    shutil.rmtree(profile,ignore_errors=True)
-                except:
-                    pass
-            time.sleep(2)
-        else:
-            print(f"[CLEANUP] ✅ Все профили удалены")
+        # DISABLE profile deletion for persistence during troubleshooting
+        # print(f"[CLEANUP] 🗑️ Удаляем ВСЕ профили Chrome...")
+        # clean_old_chrome_profiles(max_age_minutes=0)
+        # time.sleep(2)
+        # profiles_dir=Path("C:/Temp/chrome_profiles/ozon")
+        # remaining_profiles=list(profiles_dir.glob("p*")) if profiles_dir.exists() else []
+        # if remaining_profiles:
+        #     print(f"[WARNING] ⚠️ Осталось {len(remaining_profiles)} профилей! Удаляем повторно...")
+        #     for profile in remaining_profiles:
+        #         try:
+        #             shutil.rmtree(profile,ignore_errors=True)
+        #         except:
+        #             pass
+        #     time.sleep(2)
+        # else:
+        #     print(f"[CLEANUP] ✅ Все профили удалены")
         if results:
             print(f"\n[DB] 💾 Сохранение {len(results)} товаров в базу данных...")
             saved=save_batch_to_db(results)
@@ -975,10 +1190,10 @@ def main():
             break
         current_offset+=MAX_PRODUCTS_PER_BATCH
         print(f"{'='*100}")
-        print(f"🚀 СЛЕДУЮЩИЙ БАТЧ: товары {current_offset+1} - {min(current_offset+MAX_PRODUCTS_PER_BATCH,len(all_products))}")
-        print(f"   Запускаем новые воркеры...")
+        print(f"🚀 СЛЕДУЮЩИЙ БАТЧ: {current_offset+1} - {min(current_offset+MAX_PRODUCTS_PER_BATCH,len(all_products))}")
+        print(f"   ПАУЗА ОХЛАЖДЕНИЯ СЕССИИ: 5 секунд...")
         print(f"{'='*100}\n")
-        time.sleep(2)
+        time.sleep(5)
         batch_number+=1
 
     print(f"\n{'='*100}")
@@ -1045,19 +1260,24 @@ if __name__=='__main__':
         traceback.print_exc()
     finally:
         print("\n" + "="*70)
-        print("ПАРСИНГ ЗАВЕРШЁН - Закрытие всех окон через 3 секунды...")
+        print("ПАРСИНГ ЗАВЕРШЁН - Выполнение финальной очистки...")
         print("="*70)
         
-        # Terminate proxy server
+        # Comprehensive cleanup: Kill workers, close browsers, clear logs
+        kill_all_browsers()
+        
+        # Terminate proxy server (3proxy / auth_forwarder)
         try:
             import subprocess
-            print("[CLEANUP] Останавливаем прокси-сервер...")
+            print("[CLEANUP] Останавливаем прокси-сервер (3proxy/Forwarder)...")
             subprocess.run('taskkill /F /IM 3proxy.exe /T', shell=True, capture_output=True, timeout=5)
+            # Kill the proxy CMD window by its title set in start_3proxy.bat
+            subprocess.run('taskkill /F /FI "WINDOWTITLE eq OzonProxyForwarder*" /T', shell=True, capture_output=True, timeout=5)
             print("[CLEANUP] ✅ Прокси-сервер остановлен")
         except Exception as e:
             print(f"[CLEANUP] ⚠️ Не удалось остановить прокси: {e}")
         
-        time.sleep(3)
-        # Close the terminal window
-        import sys
+        print("\n" + "="*70)
+        print("✅ ВСЕ ЦЕПОЧКИ ЗАКРЫТЫ. ВЫХОД.")
+        print("="*70)
         sys.exit(0)

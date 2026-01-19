@@ -4,7 +4,7 @@
 import socket, base64, threading, selectors, time, argparse, pathlib
 
 BUF = 65536
-CONNECT_TIMEOUT = 10
+CONNECT_TIMEOUT = 20
 IDLE_TIMEOUT = 180
 
 def log(msg):
@@ -22,9 +22,9 @@ def parse_config(path):
         rows.append((host, int(port), user, pw))
     return rows
 
-def auth_hdr(user, pw):
-    token = base64.b64encode(f"{user}:{pw}".encode()).decode()
-    return f"Proxy-Authorization: Basic {token}\r\n"
+import random, string
+
+
 
 def read_headers(sock, maxlen=65536):
     """Читает до \r\n\r\n и ВЫЧИТЫВАЕТ из буфера (без PEEK)."""
@@ -152,23 +152,48 @@ def serve(listener, up_host, up_port, user, pw):
             return
         threading.Thread(target=handle_client, args=(cli, up_host, up_port, user, pw), daemon=True).start()
 
+def auth_hdr(user, pw):
+    # Base encoding for the user as provided (which may already have a session)
+    token = base64.b64encode(f"{user}:{pw}".encode()).decode()
+    return f"Proxy-Authorization: Basic {token}\r\n"
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--listen-start", type=int, required=True)
+    ap.add_argument("--count", type=int, default=1, help="Number of ports to open for sessions")
     args = ap.parse_args()
 
     entries = parse_config(args.config)
+    if not entries:
+        print("[!] No entries in config")
+        return
+
     listeners = []
-    for i, (h, p, u, w) in enumerate(entries):
-        lp = args.listen_start + i
-        ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        ls.bind(("0.0.0.0", lp))
-        ls.listen(256)
-        threading.Thread(target=serve, args=(ls, h, p, u, w), daemon=True).start()
-        listeners.append(ls)
-        print(f"[L] 0.0.0.0:{lp} -> {h}:{p}")
+    
+    # We will open 'count' ports for EACH entry in upstreams
+    # Default count is 1, but we can increase it for workers
+    for idx, (h, p, u, w) in enumerate(entries):
+        for offset in range(args.count):
+            lp = args.listen_start + (idx * args.count) + offset
+            
+            # Generate a STICKY session for this specific port
+            # This ensures that all requests through port LP use the same exit IP
+            sticky_user = u
+            if "-session-" not in sticky_user:
+                session_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+                sticky_user = f"{sticky_user}-session-{session_id}"
+            
+            ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                ls.bind(("0.0.0.0", lp))
+                ls.listen(256)
+                threading.Thread(target=serve, args=(ls, h, p, sticky_user, w), daemon=True).start()
+                listeners.append(ls)
+                print(f"[L] 0.0.0.0:{lp} -> {h}:{p} (Sticky session: ...{sticky_user[-8:]})")
+            except Exception as e:
+                print(f"[!] Failed to bind port {lp}: {e}")
 
     try:
         while True:

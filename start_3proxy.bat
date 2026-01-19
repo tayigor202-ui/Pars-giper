@@ -16,13 +16,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+title OzonProxyForwarder
 echo ▶ Запуск прокси на 127.0.0.1:8118...
 echo.
 
-python proxies/auth_forwarder.py --config upstreams.txt --listen-start 8118
+python proxies/auth_forwarder.py --config upstreams.txt --listen-start 8118 --count 30
 
-if errorlevel 1 (
-    echo.
-    echo ❌ Прокси завершился с ошибкой
-    pause
-)
+exit /b 0
