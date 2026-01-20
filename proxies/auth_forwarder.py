@@ -67,82 +67,87 @@ def pump(a, b):
             except: pass
 
 def handle_client(cli, up_host, up_port, user, pw):
-    # читаем ПОЛНОСТЬЮ стартовые заголовки клиента
-    first = read_headers(cli)
-    if not first:
-        cli.close(); return
-
-    first_line = first.split(b"\r\n", 1)[0].decode(errors="ignore")
-    log(f"Request: {first_line}")
-    
-    is_connect = first_line.upper().startswith("CONNECT ")
-
-    # коннект к апстриму
     try:
-        ups = socket.create_connection((up_host, up_port), CONNECT_TIMEOUT)
-    except Exception as e:
-        log(f"Upstream connect error: {e}")
-        cli.close(); return
+        # читаем ПОЛНОСТЬЮ стартовые заголовки клиента
+        first = read_headers(cli)
+        if not first:
+            cli.close(); return
 
-    # уменьшаем залипания
-    for s in (cli, ups):
-        try: s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except: pass
+        first_line = first.split(b"\r\n", 1)[0].decode(errors="ignore")
+        log(f"Request: {first_line}")
+        
+        is_connect = first_line.upper().startswith("CONNECT ")
 
-    if is_connect:
-        # host:port из CONNECT
+        # коннект к апстриму
         try:
-            _, target, _ = first_line.split(" ", 2)
-        except ValueError:
-            cli.close(); ups.close(); return
-
-        # отправляем свой CONNECT (с auth)
-        req = (
-            f"CONNECT {target} HTTP/1.1\r\n"
-            f"Host: {target}\r\n"
-            f"{auth_hdr(user, pw)}"
-            "Proxy-Connection: keep-alive\r\n"
-            "Connection: keep-alive\r\n"
-            "\r\n"
-        ).encode()
-        ups.sendall(req)
-
-        # читаем ответ апстрима ДО \r\n\r\n
-        resp = read_headers(ups)
-        
-        # Разделяем заголовки и возможное тело (если считали лишнее)
-        parts = resp.split(b"\r\n\r\n", 1)
-        head = parts[0]
-        extra = parts[1] if len(parts) > 1 else b""
-        
-        log(f"Upstream response: {head.decode(errors='ignore')}")
-        
-        if b" 200 " not in head:
-            try: cli.sendall(resp)
+            ups = socket.create_connection((up_host, up_port), CONNECT_TIMEOUT)
+        except Exception as e:
+            log(f"Upstream connect error: {e}")
+            try: cli.close()
             except: pass
-            cli.close(); ups.close(); return
+            return
 
-        # даём клиенту чистое 200 (без хвостов)
-        try:
-            cli.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-            # Если считали кусок тела (handshake и т.д.), отдаём клиенту
-            if extra:
-                log(f"Forwarding {len(extra)} bytes of extra data")
-                cli.sendall(extra)
-        except:
-            cli.close(); ups.close(); return
+        # уменьшаем залипания
+        for s in (cli, ups):
+            try: s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except: pass
 
-        # запускаем чистый туннель
-        pump(cli, ups)
+        if is_connect:
+            # host:port из CONNECT
+            try:
+                _, target, _ = first_line.split(" ", 2)
+            except ValueError:
+                cli.close(); ups.close(); return
 
-    else:
-        # это обычный HTTP-запрос. Вставляем Proxy-Authorization (если не было) и пробрасываем.
-        if b"Proxy-Authorization:" not in first:
-            # вставим сразу после первой строки
-            p = first.find(b"\r\n")
-            first = first[:p+2] + auth_hdr(user, pw).encode() + first[p+2:]
-        ups.sendall(first)
-        pump(cli, ups)
+            # отправляем свой CONNECT (с auth)
+            req = (
+                f"CONNECT {target} HTTP/1.1\r\n"
+                f"Host: {target}\r\n"
+                f"{auth_hdr(user, pw)}"
+                "Proxy-Connection: keep-alive\r\n"
+                "Connection: keep-alive\r\n"
+                "\r\n"
+            ).encode()
+            ups.sendall(req)
+
+            # читаем ответ апстрима ДО \r\n\r\n
+            resp = read_headers(ups)
+            
+            # Разделяем заголовки и возможное тело (если считали лишнее)
+            parts = resp.split(b"\r\n\r\n", 1)
+            head = parts[0]
+            extra = parts[1] if len(parts) > 1 else b""
+            
+            log(f"Upstream response: {head.decode(errors='ignore')}")
+            
+            if b" 200 " not in head:
+                try: cli.sendall(resp)
+                except: pass
+                cli.close(); ups.close(); return
+
+            # даём клиенту чистое 200 (без хвостов)
+            try:
+                cli.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                if extra:
+                    cli.sendall(extra)
+            except:
+                cli.close(); ups.close(); return
+
+            # запускаем чистый туннель
+            pump(cli, ups)
+
+        else:
+            # это обычный HTTP-запрос. Вставляем Proxy-Authorization (если не было) и пробрасываем.
+            if b"Proxy-Authorization:" not in first:
+                # вставим сразу после первой строки
+                p = first.find(b"\r\n")
+                first = first[:p+2] + auth_hdr(user, pw).encode() + first[p+2:]
+            ups.sendall(first)
+            pump(cli, ups)
+    except Exception as e:
+        log(f"Handle client error: {e}")
+        try: cli.close()
+        except: pass
 
 def serve(listener, up_host, up_port, user, pw):
     while True:

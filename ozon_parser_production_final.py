@@ -19,6 +19,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from dotenv import load_dotenv
 import pandas as pd
+from curl_cffi.requests import Session as CffiSession
+
+API_ENDPOINT = "https://www.ozon.ru/api/composer-api.bx/page/json/v2"
 
 # Optional: scheduler module
 try:
@@ -69,10 +72,10 @@ TG_BOT_TOKEN=os.getenv('TG_BOT_TOKEN')
 TG_CHAT_ID=os.getenv('TG_CHAT_ID')
 CHROME_PATH=r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 DEBUG_PORT_START=9222
-NUM_WORKERS=30
-BATCH_SIZE=1000
-USE_HEADLESS=True
-MAX_PRODUCTS_PER_BATCH=10000
+NUM_WORKERS=1
+BATCH_SIZE=180
+USE_HEADLESS=False
+MAX_PRODUCTS_PER_BATCH=180
 RESUME_FROM_LAST_N=0
 DELAY_BETWEEN_PRODUCTS=(3.0,7.0)
 BATCH_PAUSE_INTERVAL=20
@@ -96,6 +99,57 @@ batch_lock=threading.Lock()
 last_processed_skus=[]
 antibot_detected=False
 antibot_lock=threading.Lock()
+
+global_cookies = None
+global_ua = None
+
+def warmup_session():
+    """Прогрев сессии напрямую (без прокси) для получения актуальных куки и User-Agent."""
+    options = uc.ChromeOptions()
+    options.binary_location = CHROME_PATH
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--lang=ru-RU")
+    
+    if USE_HEADLESS:
+        options.add_argument("--headless=new")
+    
+    # Добавляем случайный UA
+    ua = generate_random_user_agent()
+    options.add_argument(f"user-agent={ua}")
+    
+    driver = None
+    try:
+        print("[WARMUP] Запуск браузера (ПРЯМОЕ СОЕДИНЕНИЕ - быстрый тест)...")
+        driver = uc.Chrome(options=options, browser_executable_path=CHROME_PATH)
+        
+        print("[WARMUP] Посещение Ozon...")
+        driver.get("https://www.ozon.ru")
+        time.sleep(3)
+        
+        # Прогрев на странице любого товара (как в тесте)
+        print("[WARMUP] Прогрев на странице товара...")
+        driver.get("https://www.ozon.ru/product/1067025156/")
+        time.sleep(5)
+            
+        selenium_cookies = driver.get_cookies()
+        cookies_dict = {cookie['name']: cookie['value'] for cookie in selenium_cookies}
+        user_agent = driver.execute_script("return navigator.userAgent;")
+        
+        print(f"[WARMUP] ✅ Сессия прогрета. Извлечено {len(cookies_dict)} куки.")
+        return cookies_dict, user_agent
+    except Exception as e:
+        print(f"[WARMUP] ERROR: {e}")
+        return None, None
+    finally:
+        if driver:
+            try: driver.quit()
+            except: pass
+
+def clean_price(price_str):
+    if not price_str:
+        return None
+    cleaned = re.sub(r'[^\d]', '', str(price_str))
+    return int(cleaned) if cleaned else None
 
 def generate_random_user_agent_full():
     chrome_versions = [
@@ -322,164 +376,99 @@ def check_current_ip(driver, worker_id):
 
 # Function attach_selenium_with_proxy removed as we use start_browser_uc directly
 
-def extract_prices(driver,sku,worker_id):
+def extract_prices_api(session, sku, worker_id, cookies, ua):
+    """
+    Экстракция цен через API Ozon (быстрая версия).
+    """
     try:
-        WebDriverWait(driver,10).until(lambda d:d.execute_script("return document.readyState")=="complete")
-        time.sleep(random.uniform(2.0,3.0))
-        seller_name=None
-        product_name=None
-        try:
-            name_selectors=["h1[data-widget='webProductHeading']","h1","div[data-widget='webProductHeading'] h1","span[data-widget='webProductHeading']"]
-            for selector in name_selectors:
-                try:
-                    name_elem=driver.find_element(By.CSS_SELECTOR,selector)
-                    if name_elem and name_elem.text.strip():
-                        product_name=name_elem.text.strip()
-                        print(f"[W{worker_id}] 📝 Название: {product_name[:50]}...")
-                        break
-                except:
-                    continue
-        except:
-            pass
-        try:
-            # Improved Seller Extraction
-            seller_selectors=["a[href*='/seller/']","a[data-widget='sellerLink']","span[data-widget='sellerName']","div[data-widget='sellerName']"]
-            for selector in seller_selectors:
-                try:
-                    seller_elem=driver.find_element(By.CSS_SELECTOR,selector)
-                    if seller_elem and seller_elem.text.strip():
-                        candidate_name=seller_elem.text.strip()
-                        if len(candidate_name)<40 and "подписаться" not in candidate_name.lower():
-                            seller_name=candidate_name
-                            break
-                except:
-                    continue
-            
-            if not seller_name:
-                # Try to find by "Магазин" label proximity (Robust fallback)
-                try:
-                    # Find element containing "Магазин" text
-                    label_elems = driver.find_elements(By.XPATH, "//*[contains(text(), 'Магазин') or contains(text(), 'Продавец')]")
-                    for label in label_elems:
-                        try:
-                            # Look for the next clickable element or text element nearby
-                            # This is a bit heuristic but handles the "Магазин" -> "Seller Name" structure
-                            parent = label.find_element(By.XPATH, "./..")
-                            # Try to find a link or span with text in the parent's siblings or children
-                            candidates = parent.find_elements(By.XPATH, ".//*[string-length(text()) > 1] | ./following-sibling::*[1]//*[string-length(text()) > 1]")
-                            for cand in candidates:
-                                txt = cand.text.strip()
-                                if txt and txt != label.text and len(txt) < 40 and "подписаться" not in txt.lower() and "перейти" not in txt.lower():
-                                    seller_name = txt
-                                    break
-                            if seller_name:
-                                break
-                        except:
-                            continue
-                except:
-                    pass
+        product_link = f"/product/{sku}/"
+        payload = {"url": product_link}
+        headers = {
+            "authority": "www.ozon.ru",
+            "accept": "application/json",
+            "accept-language": "ru-RU,ru;q=0.9",
+            "user-agent": ua,
+            "x-o3-app-name": "entrypoint-api",
+            "x-o3-app-version": "master",
+            "referer": f"https://www.ozon.ru{product_link}",
+            "sec-ch-ua": '"Not_A Brand";v="124", "Chromium";v="124", "Google Chrome";v="124"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+        }
 
-        except:
-            pass
-        if not seller_name:
-            seller_name="Ozon"
-        unavailable=False
-        unavailable_phrases=['Товар закончился','Товара нет в наличии','нет в наличии','Нет в продаже','Закончился','Недоступен для заказа','Временно недоступен']
-        try:
-            page_text=driver.find_element(By.TAG_NAME,'body').text
-            for phrase in unavailable_phrases:
-                if phrase.lower() in page_text.lower():
-                    unavailable=True
-                    break
-        except:
-            pass
-        price_block=None
-        candidates=["[data-widget='webSale']","[data-widget*='webPrice']","section[data-widget*='webPrice']","div[data-widget*='price']","div[class*='price']","span[class*='price']"]
-        for attempt in range(5):
-            for css in candidates:
-                try:
-                    els=driver.find_elements(By.CSS_SELECTOR,css)
-                    for el in els:
-                        if el and el.is_displayed():
-                            price_block=el
-                            break
-                except:
-                    continue
-            if price_block:
-                break
-            time.sleep(0.5)
-        if unavailable:
-            return {'price_card':'Товара нет в наличии','price_nocard':None,'price_old':None,'is_antibot':False,'seller_name':seller_name,'product_name':product_name}
-        if not price_block:
-            if unavailable:
-                return {'price_card':'Товара нет в наличии','price_nocard':'Товара нет в наличии','price_old':'','is_antibot':False,'seller_name':seller_name,'product_name':product_name}
-        # Detection Logic
-        antibot_markers=['Проверка безопасности','Checking your browser','cloudflare','captcha','Пройдите проверку','Доступ ограничен','access restricted','вы робот','🤖','ограничение доступа']
+        response = session.get(
+            API_ENDPOINT,
+            params=payload,
+            headers=headers,
+            cookies=cookies,
+            timeout=15
+        )
+
+        if response.status_code == 403:
+            return {'status': 'ANTIBOT', 'is_antibot': True}
+        if response.status_code != 200:
+            return {'status': f'ERROR_{response.status_code}', 'is_antibot': False}
+
+        data = response.json()
+        widget_states = data.get("widgetStates", {})
         
-        page_source_lower=driver.page_source.lower()
+        # Глубокий поиск в Nuxt/Composer структуре
+        if not widget_states:
+            try:
+                vi = data.get("verticalInfo", {})
+                composer = vi.get("composer", {}) or vi.get("pdp", {})
+                widget_states = composer.get("widgetStates", {})
+            except: pass
+
+        price_card = None
+        price_nocard = None
+        price_old = None
+        stock_status = "OK"
+        product_name = "Unknown"
         
-        # Check title first - it's the fastest
-        try:
-            if "доступ ограничен" in driver.title.lower() or "ограничение доступа" in driver.title.lower():
-                print(f"[W{worker_id}] 🤖 BLOCK DETECTED BY TITLE")
-                return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':True,'seller_name':None,'product_name':None}
-        except:
-            pass
-            
-        is_antibot=any(marker.lower() in page_source_lower for marker in antibot_markers)
-        if not is_antibot:
-            try:
-                # Double check body text visibility
-                body_text = driver.find_element(By.TAG_NAME,'body').text.lower()
-                is_antibot = any(marker.lower() in body_text for marker in antibot_markers)
-            except:
-                pass
+        # SEO для названия
+        seo = data.get("seo") or data.get("SEO")
+        if seo:
+            product_name = seo.get("title") or "Unknown"
 
-        if is_antibot:
-            print(f"[W{worker_id}] 🤖 BLOCK DETECTED BY CONTENT")
-            return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':True,'seller_name':None,'product_name':None}
-
-        # Human-like interaction: small scroll
-        try:
-            if random.random() > 0.5:
-                scroll_amount = random.randint(200, 500)
-                driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
-                time.sleep(random.uniform(0.3, 0.7))
-        except:
-            pass
-        txt=re.sub(r'\s+',' ',price_block.text.replace('\n',' ').strip())
-        price_re=re.compile(r'[\d\s]+₽')
-        low=txt.lower()
-        if ("ozon карт" in low) or ("с картой" in low):
-            parts=re.split(r'[cс] Ozon Картой|без Ozon Карты|[cс] картой|без карты',txt,flags=re.IGNORECASE)
-            if len(parts)>=2:
-                m_card=price_re.search(parts[0])
-                price_card=m_card.group(0) if m_card else None
-                nums=price_re.findall(parts[1])
-                price_nocard=nums[0] if len(nums)>0 else None
-                price_old=nums[1] if len(nums)>1 else ''
-                return {'price_card':price_card,'price_nocard':price_nocard,'price_old':price_old,'is_antibot':False,'seller_name':seller_name,'product_name':product_name}
-        price_old=''
-        for sel in ["del","span[style*='line-through']",".price-old"]:
+        price_widget_key = next((k for k in widget_states.keys() if "webPrice" in k), None)
+        oos_widget_key = next((k for k in widget_states.keys() if "webOutOfStock" in k), None)
+        
+        if price_widget_key:
             try:
-                old_els=price_block.find_elements(By.CSS_SELECTOR,sel)
-                for o in old_els:
-                    if o and o.is_displayed():
-                        m=price_re.search(o.text or "")
-                        if m:
-                            price_old=m.group(0)
-                            break
-                if price_old:
-                    break
-            except:
-                pass
-        prices=price_re.findall(txt)
-        if prices:
-            p=prices[0]
-            return {'price_card':p,'price_nocard':p,'price_old':price_old,'is_antibot':False,'seller_name':seller_name,'product_name':product_name}
-        return {'price_card':None,'price_nocard':None,'price_old':None,'is_antibot':False,'seller_name':seller_name,'product_name':product_name}
+                price_state = json.loads(widget_states[price_widget_key])
+                price_card = clean_price(price_state.get("cardPrice"))
+                price_nocard = clean_price(price_state.get("price"))
+                price_old = clean_price(price_state.get("originalPrice"))
+                if "закончился" in str(price_state).lower():
+                    stock_status = "OUT_OF_STOCK"
+            except: pass
+
+        if oos_widget_key:
+             stock_status = "OUT_OF_STOCK"
+             try:
+                 oos_state = json.loads(widget_states[oos_widget_key])
+                 if not price_nocard:
+                     price_nocard = clean_price(oos_state.get("price"))
+             except: pass
+        
+        # Fallback на текст
+        if stock_status == "OK" and price_nocard is None:
+            if "закончился" in str(data).lower():
+                stock_status = "OUT_OF_STOCK"
+
+        return {
+            'price_card': price_card,
+            'price_nocard': price_nocard,
+            'price_old': price_old,
+            'status': stock_status,
+            'product_name': product_name,
+            'is_antibot': False
+        }
+
     except Exception as e:
-        return {'price_card':None,'price_nocard':None,'price_old':None,'seller_name':'Ozon','product_name':None}
+        print(f"[W{worker_id}] ERROR: {e}")
+        return {'status': 'ERROR', 'is_antibot': False}
 
 def save_batch_to_db(batch):
     if not batch:
@@ -488,10 +477,9 @@ def save_batch_to_db(batch):
     cur=conn.cursor()
     saved=0
     for item in batch:
-        # Always save, even if status is not OK (to track Out of Stock/Errors)
         try:
             # Use SAVEPOINT to prevent transaction abortion on error
-            # Use INSERT ON CONFLICT to handle multiple sellers per SKU correctly
+            cur.execute("SAVEPOINT sp1")
             cur.execute("""
                 INSERT INTO public.prices (sku, competitor_name, price_card, price_nocard, price_old, name, status, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
@@ -505,13 +493,14 @@ def save_batch_to_db(batch):
                     created_at = NOW()
             """, (
                 item['sku'], 
-                item['competitor_name'], # Use the preserved competitor name from DB/Import
-                item['price_card'], 
-                item['price_nocard'], 
-                item['price_old'], 
+                item['competitor_name'],
+                item.get('price_card'), 
+                item.get('price_nocard'), 
+                item.get('price_old'), 
                 item.get('product_name'), 
                 item.get('status')
             ))
+            cur.execute("RELEASE SAVEPOINT sp1")
             saved+=1
         except Exception as e:
             cur.execute("ROLLBACK TO SAVEPOINT sp1")
@@ -521,303 +510,103 @@ def save_batch_to_db(batch):
     conn.close()
     return saved
 
-def worker(worker_id,port,proxies):
-    global db_save_counter,processed_count,stop_flag,antibot_detected,antibot_lock,product_queue
-    driver=None
-    proxy_rotation=0
-    local_batch=[]
-    worker_products_count=0
-    browser_products_count=0
-    print(f"[W{worker_id}] 🚀 Запускаем воркер на порту {port}...")
-    def create_browser():
-        nonlocal driver
-        # Generate unique session ID for this worker/browser instance
-        session_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        # MangoProxy session format: user-session-ID
-        proxy_user = proxies['user']
-        if "-session-" not in proxy_user:
-            proxy_user = f"{proxy_user}-session-{session_id}"
-            
-        unique_id=int(time.time()*1000)+worker_id+browser_products_count
-        ua_info = generate_random_user_agent_full()
-        
-        # Use worker-specific proxy port for sticky sessions
-        proxy_port = 8118 + worker_id
-        
-        # start_browser_uc now returns the driver directly
-        driver, profile = start_browser_uc(
-            port=port,
-            unique_id=unique_id,
-            ua_info=ua_info,
-            proxy_host="127.0.0.1",
-            proxy_port=proxy_port,
-            proxy_user=proxy_user,
-            proxy_pass=proxies['pass'],
-            worker_id=worker_id
-        )
-        
-        if not driver:
-            print(f"[W{worker_id}] ❌ Не удалось запустить UC на порту {port}")
-            return False
-            
-        print(f"[W{worker_id}] ✅ БРАУЗЕР ГОТОВ (UC + Session: {session_id})")
-        return True
-    if not create_browser():
-        return
-    while not stop_flag:
-        try:
-            item=None
-            try:
-                item=retry_queue.get_nowait()
-            except:
-                pass
-            if not item:
-                try:
-                    item=product_queue.get(timeout=30)
-                except:
-                    break
-            if len(item)==5:
-                # Retry item with competitor_name: (sku, name, brand, url, competitor_name)
-                sku,name,brand,url,competitor_name=item
-                idx=0
-            elif len(item)==4:
-                # Main queue item: (idx, sku, name, competitor_name)
-                idx,sku,name,competitor_name=item
-                brand=None
-                url=f"https://www.ozon.ru/product/{sku}/"
-            else:
-                # Fallback
-                idx,sku,name=item
-                competitor_name=None
-                brand=None
-                url=f"https://www.ozon.ru/product/{sku}/"
-            time.sleep(random.uniform(0.5,1.5))
-            success=False
-            try:
-                driver.get(f"https://www.ozon.ru/product/{sku}/")
-                try:
-                    WebDriverWait(driver,5).until(lambda d:d.execute_script("return document.readyState")=="complete")
-                    try:
-                        WebDriverWait(driver,2).until_not(EC.presence_of_element_located((By.CSS_SELECTOR,"[class*='spinner'], [class*='loader'], [class*='loading']")))
-                    except:
-                        pass
-                    WebDriverWait(driver,3).until(EC.presence_of_element_located((By.CSS_SELECTOR,"span, button, div")))
-                    time.sleep(random.uniform(0.5,1.0))
-                except TimeoutException:
-                    time.sleep(1)
-                prices=extract_prices(driver,sku,worker_id)
-                if idx==1 and not prices.get('price_card'):
-                    try:
-                        with open(f"debug_html_{sku}.html",'w',encoding='utf-8') as f:
-                            f.write(driver.page_source)
-                    except:
-                        pass
-                success=False
-                status='ERROR'
-                retry_needed=False
-                if prices:
-                    if prices.get('is_antibot'):
-                        status='ANTIBOT'
-                        retry_needed=True
-                    elif prices.get('price_card')=='Товара нет в наличии':
-                        status='OUT_OF_STOCK'
-                    elif prices.get('price_card') and prices.get('price_card')!='Товара нет в наличии':
-                        success=True
-                        status='OK'
-                    else:
-                        status='NO_PRICE'
-                else:
-                    status='ERROR'
-                    retry_needed=True
-                extracted_seller = prices.get('seller_name') if prices else None
-                # Если имя конкурента не задано (в очереди), используем то что спарсили
-                final_competitor = competitor_name if competitor_name else extracted_seller
-                result={'sku':sku,'competitor_name':final_competitor,'price_card':prices.get('price_card') if success and prices else None,'price_nocard':prices.get('price_nocard') if success and prices else None,'price_old':prices.get('price_old') if success and prices else None,'product_name':prices.get('product_name') if prices else None,'status':status}
-                with results_lock:
-                    results.append(result)
-                with processed_lock:
-                    processed_count+=1
-                    current_count=processed_count
-                    if current_count%10==0:
-                        print(f"\n📊 ПРОГРЕСС: {current_count}/3100 товаров обработано\n")
-                if retry_needed:
-                    with retry_lock:
-                        attempt_count=retry_counts.get(sku,0)
-                        if attempt_count<MAX_RETRIES_PER_PRODUCT:
-                            retry_counts[sku]=attempt_count+1
-                            retry_queue.put((sku,name,brand if brand else 'Unknown',url if url else f"https://www.ozon.ru/product/{sku}/",competitor_name))
-                            if status=='ANTIBOT':
-                                print(f"🤖 ANTIBOT (попытка {attempt_count+1}/{MAX_RETRIES_PER_PRODUCT}) → в очередь")
-                            else:
-                                print(f"⚠️ ERROR (попытка {attempt_count+1}/{MAX_RETRIES_PER_PRODUCT}) → в очередь")
-                        else:
-                            if status=='ANTIBOT':
-                                print(f"🤖 ANTIBOT (MAX попыток)")
-                            else:
-                                print(f"⚠️ ERROR (MAX попыток)")
-                else:
-                    if status=='OK':
-                        price_card=prices.get('price_card','-')
-                        price_nocard=prices.get('price_nocard','-')
-                        price_old=prices.get('price_old','-')
-                        print(f"✅ SKU {sku}: С картой: {price_card} | Без карты: {price_nocard} | Старая: {price_old}")
-                    elif status=='OUT_OF_STOCK':
-                        print(f"📦 SKU {sku}: Товар закончился")
-                    elif status=='ANTIBOT':
-                        print(f"🤖 SKU {sku}: АНТИБОТ ОБНАРУЖЕН!")
-                delay=random.uniform(DELAY_BETWEEN_PRODUCTS[0],DELAY_BETWEEN_PRODUCTS[1])
-                time.sleep(delay)
-                if random.random()>0.85:
-                    long_pause=random.uniform(10.0,20.0)
-                    print(f"[W{worker_id}] 💤 Долгая пауза {long_pause:.1f}с (имитация отвлечения)")
-                    time.sleep(long_pause)
-                worker_products_count+=1
-                browser_products_count+=1
-                if worker_products_count%BATCH_PAUSE_INTERVAL==0:
-                    batch_pause=random.uniform(BATCH_PAUSE_DURATION[0],BATCH_PAUSE_DURATION[1])
-                    print(f"[W{worker_id}] 🛑 БАТЧ-ПАУЗА {batch_pause:.1f}с после {worker_products_count} товаров")
-                    time.sleep(batch_pause)
-                
-                # Check if we need to recreate browser
-                recreate_threshold=random.randint(8,12)
-                should_recreate = browser_products_count>=recreate_threshold or status == 'ANTIBOT'
-                
-                if should_recreate:
-                    if status == 'ANTIBOT':
-                        cooldown = random.uniform(30.0, 60.0)
-                        print(f"[W{worker_id}] 🤖 ПАУЗА ОХЛАЖДЕНИЯ {cooldown:.1f}с из-за ANTIBOT")
-                        time.sleep(cooldown)
-                    
-                    print(f"[W{worker_id}] 🔄 Пересоздаем браузер ({browser_products_count} тов., статус: {status})")
-                    try:
-                        if driver:
-                            print(f"[W{worker_id}] 🛑 Закрываем старый браузер...")
-                            driver.quit()
-                            time.sleep(1.0)
-                    except:
-                        pass
-                    browser_products_count=0
-                    if not create_browser():
-                        print(f"[W{worker_id}] ❌ Не удалось пересоздать браузер, завершаем воркер")
-                        break
-            except TimeoutException:
-                with retry_lock:
-                    attempt_count=retry_counts.get(sku,0)
-                    if attempt_count<MAX_RETRIES_PER_PRODUCT:
-                        retry_counts[sku]=attempt_count+1
-                        retry_queue.put((sku,name,brand if brand else 'Unknown',url if url else f"https://www.ozon.ru/product/{sku}/",competitor_name))
-                    else:
-                        with results_lock:
-                            results.append({'sku':sku,'competitor_name':competitor_name,'price_card':None,'price_nocard':None,'price_old':None,'status':'TIMEOUT'})
-            except Exception as e:
-                error_msg=str(e).lower()
-                if '404' in error_msg or 'not found' in error_msg:
-                    status='404_NO_PAGE'
-                elif 'timeout' in error_msg:
-                    status='TIMEOUT'
-                elif 'connection' in error_msg or 'proxy' in error_msg:
-                    status='PROXY_ERROR'
-                else:
-                    status='ERROR'
-                if status=='ANTIBOT':
-                    print(f"🤖 SKU {sku}: АНТИБОТ ОБНАРУЖЕН!")
-                elif status not in ['TIMEOUT','PROXY_ERROR']:
-                    print(f"⚠️ SKU {sku}: {status}")
-                with retry_lock:
-                    attempt_count=retry_counts.get(sku,0)
-                    if attempt_count<MAX_RETRIES_PER_PRODUCT:
-                        retry_counts[sku]=attempt_count+1
-                        retry_queue.put((sku,name,brand if brand else 'Unknown',url if url else f"https://www.ozon.ru/product/{sku}/",competitor_name))
-                    else:
-                        with results_lock:
-                            results.append({'sku':sku,'competitor_name':competitor_name,'price_card':None,'price_nocard':None,'price_old':None,'status':status})
-            finally:
-                try:
-                    if driver:
-                        try:
-                            while len(driver.window_handles)>1:
-                                try:
-                                    driver.switch_to.window(driver.window_handles[-1])
-                                    driver.close()
-                                except:
-                                    break
-                            try:
-                                driver.switch_to.window(driver.window_handles[0])
-                            except:
-                                pass
-                        except:
-                            pass
-                        try:
-                            driver.delete_all_cookies()
-                        except:
-                            pass
-                except:
-                    pass
-        except KeyboardInterrupt:
-            print(f"\n[W{worker_id}] Interrupted by user")
-            break
-        except:
-            pass
-    if local_batch:
-        print(f"\n[W{worker_id}] Saving final batch ({len(local_batch)} items)...")
-        saved=save_batch_to_db(local_batch)
-        print(f"[W{worker_id}] Saved {saved} items")
-    try:
-        if driver:
-            driver.quit()
-            time.sleep(0.2)
-    except:
-        pass
-    try:
-        if proc:
-            proc.kill()
-            time.sleep(0.2)
-    except:
-        pass
-    try:
-        import psutil
-        for p in psutil.process_iter(['pid','name','cmdline']):
-            try:
-                if p.info['name'] and 'chrome' in p.info['name'].lower():
-                    cmdline=p.info.get('cmdline',[])
-                    if cmdline and any(f'--remote-debugging-port={port}' in str(arg) for arg in cmdline):
-                        p.kill()
-            except:
-                pass
-    except:
-        pass
-    print(f"[W{worker_id}] Closed")
+def run_single_batch(batch_products):
+    """
+    Обработка батча ПОСЛЕДОВАТЕЛЬНО (как в тесте).
+    Один прогрев -> Один сеанс -> Прямое соединение без прокси.
+    """
+    global processed_count, results, global_cookies, global_ua
+    processed_count = 0
+    results = []
+    start_time = time.time()
+    
+    # 1. Прогрев сессии (один раз на батч)
+    global_cookies, global_ua = warmup_session()
+    
+    if not global_cookies or not global_ua:
+        print("[ERROR] ❌ Не удалось прогреть сессию. Пропускаем батч.")
+        return False
 
-def clean_old_chrome_profiles(max_age_minutes=30):
-    try:
-        profiles_dir=Path("C:/Temp/chrome_profiles/ozon")
-        if not profiles_dir.exists():
-            return 0
-        now=time.time()
-        max_age_seconds=max_age_minutes*60
-        deleted=0
-        total_size=0
-        for profile_path in profiles_dir.glob("p*"):
-            if profile_path.is_dir():
-                try:
-                    profile_age=now-profile_path.stat().st_mtime
-                    if profile_age>max_age_seconds:
-                        try:
-                            size=sum(f.stat().st_size for f in profile_path.rglob('*') if f.is_file())
-                            total_size+=size
-                        except:
-                            pass
-                        shutil.rmtree(profile_path,ignore_errors=True)
-                        deleted+=1
-                except:
-                    pass
-        if deleted>0:
-            size_mb=total_size/(1024*1024)
-            print(f"[CLEANUP] Удалено {deleted} старых профилей ({size_mb:.1f} MB освобождено)")
-        return deleted
-    except Exception as e:
-        print(f"[CLEANUP] Error: {e}")
-        return 0
+    # 2. Инициализация CFFI сессии с полученными куками (ПРЯМОЕ СОЕДИНЕНИЕ)
+    session = CffiSession(impersonate="chrome124")
+    # session.proxies = ... (УДАЛЕНО для прямого соединения)
+    
+    print(f"[OK] Сессия прогрета. Начинаем ПОСЛЕДОВАТЕЛЬНУЮ обработку {len(batch_products)} товаров...")
+
+    for idx, (sku, name, competitor_name, sp_code) in enumerate(batch_products, 1):
+        try:
+            # Прямой вызов API
+            res = extract_prices_api(session, sku, 0, global_cookies, global_ua)
+            
+            status = res.get('status', 'ERROR')
+            
+            # Сохранение результата
+            result = {
+                'sku': sku,
+                'competitor_name': competitor_name or res.get('seller_name', 'Ozon'),
+                'price_card': res.get('price_card'),
+                'price_nocard': res.get('price_nocard'),
+                'price_old': res.get('price_old'),
+                'product_name': res.get('product_name'),
+                'status': status
+            }
+            results.append(result)
+            processed_count += 1
+
+            if status == 'OK':
+                print(f"[{idx}] ✅ SKU {sku}: {res.get('price_nocard')} руб.")
+            elif status == 'OUT_OF_STOCK':
+                print(f"[{idx}] 📦 SKU {sku}: Товар закончился")
+            elif status == 'ANTIBOT':
+                print(f"[{idx}] 🤖 ANTIBOT для SKU {sku}")
+            else:
+                print(f"[{idx}] ⚠️ ERROR для SKU {sku}: {status}")
+
+            if processed_count % 20 == 0:
+                print(f"\n📊 ПРОГРЕСС: {processed_count}/{len(batch_products)} товаров обработано\n")
+
+            # Задержка между запросами (КАК В ТЕСТЕ - 0.5 сек)
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"[ERROR] SKU {sku}: {e}")
+            time.sleep(1)
+            
+    elapsed = time.time() - start_time
+    total = len(results)
+    ok_count = sum(1 for r in results if r.get('status') == 'OK')
+    out_of_stock = sum(1 for r in results if r.get('status') == 'OUT_OF_STOCK')
+    antibot = sum(1 for r in results if r.get('status') == 'ANTIBOT')
+    errors = sum(1 for r in results if r.get('status', '').startswith('ERROR'))
+    
+    if total > 0:
+        print(f"\n{'='*100}")
+        print(f"БАТЧ ЗАВЕРШЁН: {ok_count}/{total} товаров ({int(elapsed//60)}m {int(elapsed%60)}s)")
+        print(f"  ✅ OK:                {ok_count:4d}")
+        print(f"  📦 OUT_OF_STOCK:       {out_of_stock:4d}")
+        print(f"  🤖 ANTIBOT:            {antibot:4d}")
+        print(f"  ⚠️ ERRORS:             {errors:4d}")
+        print(f"📊 СРЕДНЯЯ СКОРОСТЬ: {total/(elapsed/60):.1f} тов/мин")
+        print(f"{'='*100}\n")
+    return True
+        
+    elapsed = time.time() - start_time
+    total = len(results)
+    ok_count = sum(1 for r in results if r.get('status') == 'OK')
+    out_of_stock = sum(1 for r in results if r.get('status') == 'OUT_OF_STOCK')
+    antibot = sum(1 for r in results if r.get('status') == 'ANTIBOT')
+    errors = sum(1 for r in results if r.get('status', '').startswith('ERROR'))
+    
+    if total > 0:
+        print(f"\n{'='*100}")
+        print(f"БАТЧ ЗАВЕРШЁН: {ok_count}/{total} товаров ({int(elapsed//60)}m {int(elapsed%60)}s)")
+        print(f"  ✅ OK:                {ok_count:4d}")
+        print(f"  📦 OUT_OF_STOCK:       {out_of_stock:4d}")
+        print(f"  🤖 ANTIBOT:            {antibot:4d}")
+        print(f"  ⚠️ ERRORS:             {errors:4d}")
+        print(f"📊 СРЕДНЯЯ СКОРОСТЬ: {total/(elapsed/60):.1f} тов/мин")
+        print(f"{'='*100}\n")
+    return True
 
 def load_proxies():
     # Now reading from upstreams.txt to single source truth
@@ -881,36 +670,35 @@ def generate_excel_report():
                 if str(val).lower().strip() in ['','none','nan']: return True
                 return False
 
-            status = row.get('status')
+            status = str(row.get('status', '')).upper()
             p_card = row.get('price_card')
+            p_nocard = row.get('price_nocard')
             
             # Text to display
             out_text = 'Товар закончился'
             
-            # Condition 1: Explicit Status
-            if status == 'OUT_OF_STOCK':
-                return pd.Series([out_text, out_text, out_text, status], index=['price_card', 'price_nocard', 'price_old', 'status'])
+            # Condition 1: Explicit Status OOS
+            if 'OUT_OF_STOCK' in status:
+                # Keep last prices if they exist (now they are ints)
+                return pd.Series([p_card, p_nocard, row.get('price_old'), out_text], 
+                                index=['price_card', 'price_nocard', 'price_old', 'status'])
             
-            # Condition 2: Text in Price fields
-            if isinstance(p_card, str) and ('закончился' in p_card.lower() or 'нет' in p_card.lower()):
-                 return pd.Series([out_text, out_text, out_text, status], index=['price_card', 'price_nocard', 'price_old', 'status'])
-
-            # Condition 3: Missing Price but NOT Error
-            if check_val(p_card):
-                if status == 'ANTIBOT':
+            # Condition 2: Missing Price but NOT Error
+            if check_val(p_nocard):
+                if 'BLOCKED' in status or 'ANTIBOT' in status:
                     text = 'Ошибка (Антибот)'
                     return pd.Series([text, text, text, text], index=['price_card', 'price_nocard', 'price_old', 'status'])
-                elif status == 'ERROR':
+                elif 'ERROR' in status:
                     text = 'Ошибка парсинга'
                     return pd.Series([text, text, text, text], index=['price_card', 'price_nocard', 'price_old', 'status'])
-                elif status == 'NO_PRICE':
+                elif 'NO_PRICE' in status:
                     text = 'Нет цены'
                     return pd.Series([text, text, text, text], index=['price_card', 'price_nocard', 'price_old', 'status'])
                 else:
-                    # NO TEXT - leave empty for missing data
                     return pd.Series([None, None, None, status], index=['price_card', 'price_nocard', 'price_old', 'status'])
                 
-            return pd.Series([row['price_card'], row['price_nocard'], row['price_old'], row.get('status', 'OK')], index=['price_card', 'price_nocard', 'price_old', 'status'])
+            return pd.Series([p_card, p_nocard, row.get('price_old'), 'В наличии'], 
+                            index=['price_card', 'price_nocard', 'price_old', 'status'])
 
         # Apply transformation
         df[['price_card', 'price_nocard', 'price_old', 'status']] = df.apply(fill_status, axis=1)
@@ -1034,9 +822,12 @@ def send_to_telegram(filename,stats_text):
             print(f"[TG] Response status: {response.status_code}")  # DEBUG
             if response.status_code==200:
                 print("[TG] Report sent successfully")
+                # Даем системе время закрыть дескриптор файла
+                time.sleep(5)
                 try:
-                    os.remove(filename)
-                    print(f"[TG] ✅ File deleted: {filename}")
+                    if os.path.exists(filename):
+                        os.remove(filename)
+                        print(f"[TG] ✅ File deleted: {filename}")
                 except Exception as del_err:
                     print(f"[TG] ❌ Failed to delete file: {del_err}")
             else:
@@ -1082,51 +873,11 @@ def kill_all_browsers():
     except Exception as e:
         print(f"[CLEANUP] ⚠️ Ошибка при выполнении очистки: {e}")
 
-def run_single_batch(batch_products):
-    global processed_count,stop_flag,product_queue,results,db_save_counter
-    processed_count=0
-    stop_flag=False
-    db_save_counter=0
-    start_time=time.time()
-    proxies=load_proxies()
-    print(f"[OK] ROTATING MangoProxy загружен (каждый запрос = новый IP)")
-    for idx,(sku,name,comp_name,sp_code) in enumerate(batch_products,1):
-        product_queue.put((idx,sku,name,comp_name))
-    print(f"\n{'='*100}")
-    print(f"[INIT] Starting {NUM_WORKERS} workers...\n")
-    print(f"{'='*100}\n")
-    workers=[]
-    for worker_id in range(NUM_WORKERS):
-        port=DEBUG_PORT_START+worker_id
-        t=threading.Thread(target=worker,args=(worker_id,port,proxies),daemon=True)
-        t.start()
-        workers.append(t)
-        # Stagger startup to avoid simultaneous requests from multiple workers
-        # Adjusted for 30 workers to be fast but stable
-        time.sleep(random.uniform(2.0, 4.0))
-    for t in workers:
-        t.join()
-    elapsed=time.time()-start_time
-    total=len(results)
-    ok_count=sum(1 for r in results if r.get('status')=='OK')
-    out_of_stock=sum(1 for r in results if r.get('status')=='OUT_OF_STOCK')
-    no_price=sum(1 for r in results if r.get('status')=='NO_PRICE')
-    errors=sum(1 for r in results if r.get('status') in ['ERROR','TIMEOUT','PROXY_ERROR'])
-    if total>0:
-        print(f"\n{'='*100}")
-        print(f"БАТЧ ЗАВЕРШЁН: {ok_count}/{total} цен найдено ({int(elapsed//60)}m {int(elapsed%60)}s)")
-        print(f"  ✅ OK (цена):          {ok_count:4d} ({ok_count/total*100:.1f}%)")
-        print(f"  📦 OUT_OF_STOCK:       {out_of_stock:4d} ({out_of_stock/total*100:.1f}%)")
-        print(f"  ❌ NO_PRICE:           {no_price:4d} ({no_price/total*100:.1f}%)")
-        print(f"  ⚠️ ERRORS:            {errors:4d} ({errors/total*100:.1f}%)")
-        print(f"{'='*100}\n")
-    return True
-
 def main():
-    global processed_count,stop_flag,results,product_queue,last_processed_skus,batch_complete
+    global processed_count,results,last_processed_skus,batch_complete
     print("="*100)
     print("OZON PRODUCTION PARSER - РЕЖИМ НЕПРЕРЫВНЫХ БАТЧЕЙ")
-    print(f"СТРАТЕГИЯ: {MAX_PRODUCTS_PER_BATCH} товаров -> сохранить -> убить всё -> БЕЗ ПАУЗ -> новые воркеры -> следующие {MAX_PRODUCTS_PER_BATCH}")
+    print(f"СТРАТЕГИЯ: {MAX_PRODUCTS_PER_BATCH} товаров -> сохранить -> БЕЗ ПАУЗ -> следующие {MAX_PRODUCTS_PER_BATCH}")
     print(f"СКОРОСТЬ: Максимальная! Без задержек между батчами!")
     print("="*100)
     batch_number=1
@@ -1141,30 +892,43 @@ def main():
         print(f"\n{'='*100}")
         print(f"\n[BATCH #{batch_number}] Товары {current_offset+1} - {min(current_offset+MAX_PRODUCTS_PER_BATCH,len(all_products))}")
         print(f"{'='*100}\n")
-        results=[]
-        product_queue=Queue()
-        processed_count=0
-        stop_flag=False
-        batch_complete=False
-        last_processed_skus=[]
+        
         batch_products=all_products[current_offset:current_offset+MAX_PRODUCTS_PER_BATCH]
         print(f"[INIT] Загружено {len(batch_products)} товаров для обработки\n")
+        
         success=run_single_batch(batch_products)
         if not success:
             print("[ERROR] Ошибка при обработке батча")
             break
+            
         batch_processed=len(results)
         total_parsed+=batch_processed
-        if len(results)>=RESUME_FROM_LAST_N:
-            last_processed_skus=[r['sku'] for r in results[-RESUME_FROM_LAST_N:]]
+        
         print(f"\n{'='*100}")
         print(f"✅ БАТЧ #{batch_number} ЗАВЕРШЁН")
         print(f"   Обработано: {batch_processed} товаров")
         print(f"   Всего обработано: {total_parsed}/{len(all_products)}")
         print(f"{'='*100}\n")
-        print(f"[CLEANUP] 🔪 УБИВАЕМ ВСЁ: процессы Python и Chrome...")
+        
+        print(f"[CLEANUP] 🔪 Очистка после батча...")
         kill_all_browsers()
-        time.sleep(3)
+        
+        if results:
+            print(f"\n[DB] 💾 Сохранение {len(results)} товаров в базу данных...")
+            saved=save_batch_to_db(results)
+            print(f"[DB] ✅ Сохранено {saved} товаров")
+            
+        current_offset+=MAX_PRODUCTS_PER_BATCH
+        if current_offset>=len(all_products):
+            print("[COMPLETE] Все товары обработаны!")
+            break
+            
+        print(f"{'='*100}")
+        print(f"🚀 СЛЕДУЮЩИЙ БАТЧ: {current_offset+1} - {min(current_offset+MAX_PRODUCTS_PER_BATCH,len(all_products))}")
+        print(f"   ПАУЗА ОХЛАЖДЕНИЯ СЕССИИ: 5 секунд...")
+        print(f"{'='*100}\n")
+        time.sleep(5)
+        batch_number+=1
         # DISABLE profile deletion for persistence during troubleshooting
         # print(f"[CLEANUP] 🗑️ Удаляем ВСЕ профили Chrome...")
         # clean_old_chrome_profiles(max_age_minutes=0)
