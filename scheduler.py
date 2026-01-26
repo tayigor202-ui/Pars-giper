@@ -20,14 +20,19 @@ def save_schedules(schedules):
     with open(SCHEDULES_FILE, 'w', encoding='utf-8') as f:
         json.dump(schedules, f, ensure_ascii=False, indent=2)
 
-def run_parser():
-    """Execute run_all.bat"""
-    print(f"[SCHEDULER] Starting parser at {datetime.now()}")
+def run_parser(platform='ozon'):
+    """Execute run_all.bat (Ozon) or run_wb.bat (Wildberries)"""
+    print(f"[SCHEDULER] Starting {platform} parser at {datetime.now()}")
     try:
-        subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', 'run_all.bat'], shell=False)
-        print("[SCHEDULER] Parser launched successfully")
+        if platform == 'wb':
+            script = 'run_wb.bat'
+        else:
+            script = 'run_all.bat'
+            
+        subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', script], shell=False)
+        print(f"[SCHEDULER] {platform.upper()} Parser launched successfully")
     except Exception as e:
-        print(f"[SCHEDULER] Error launching parser: {e}")
+        print(f"[SCHEDULER] Error launching {platform} parser: {e}")
 
 def update_scheduler():
     """Update scheduler jobs based on saved schedules"""
@@ -43,6 +48,8 @@ def update_scheduler():
         hour = int(time_parts[0])
         minute = int(time_parts[1])
         
+        platform = schedule.get('platform', 'ozon')
+        
         # Convert day indices to cron format
         # 0=Mon, 1=Tue, ..., 6=Sun -> mon,tue,wed,thu,fri,sat,sun
         day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
@@ -57,10 +64,11 @@ def update_scheduler():
             scheduler.add_job(
                 run_parser,
                 trigger=trigger,
+                args=[platform],
                 id=f"schedule_{schedule['id']}",
-                name=f"Parser at {schedule['time']} on {days}"
+                name=f"{platform.upper()} Parser at {schedule['time']} on {days}"
             )
-            print(f"[SCHEDULER] Added job: {schedule['time']} on {days}")
+            print(f"[SCHEDULER] Added job: {platform.upper()} at {schedule['time']} on {days}")
 
 def init_scheduler():
     """Initialize the scheduler"""

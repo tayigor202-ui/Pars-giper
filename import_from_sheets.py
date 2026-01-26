@@ -17,8 +17,26 @@ if not DB_URL:
     DB_NAME = os.getenv('DB_NAME')
     DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Google Sheets URL - convert to CSV export URL
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1yYpnpS0HkybD-Xsc5iPhlbPKC0r8yp3oG-HMDIVluvw/export?format=csv"
+# Default placeholder
+DEFAULT_SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1yYpnpS0HkybD-Xsc5iPhlbPKC0r8yp3oG-HMDIVluvw/export?format=csv"
+
+def get_export_url(url):
+    """Конвертирует обычную ссылку Google Sheets в ссылку для экспорта CSV"""
+    if not url: return None
+    if '/export?format=csv' in url: return url
+    match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if match:
+        spreadsheet_id = match.group(1)
+        return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
+    return url
+
+import sys
+if len(sys.argv) > 1:
+    SPREADSHEET_URL = get_export_url(sys.argv[1])
+    print(f"[SHEETS] Using provided URL: {SPREADSHEET_URL}")
+else:
+    SPREADSHEET_URL = get_export_url(os.getenv('SPREADSHEET_URL', DEFAULT_SPREADSHEET_URL))
+    print(f"[SHEETS] Using default/env URL: {SPREADSHEET_URL}")
 
 def extract_sku_from_url(url_or_sku):
     """Извлекает SKU из URL или возвращает как есть, если это уже SKU"""

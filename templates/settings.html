@@ -35,37 +35,61 @@
     <div class="col-md-6">
         <div class="main-card h-100">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-database"></i> База данных</h5>
+                <h5 class="mb-0"><i class="bi bi-database"></i> База данных (OZON)</h5>
             </div>
             <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label"><i class="bi bi-link-45deg"></i> URL Google Sheets</label>
+                    <label class="form-label"><i class="bi bi-link-45deg"></i> URL Google Sheets (OZON)</label>
                     <input type="text" class="form-control" id="google-sheet-url"
                         placeholder="https://docs.google.com/spreadsheets/d/...">
-                    <small class="text-white-50 d-block mt-1">Ссылка на таблицу с товарами для импорта</small>
+                    <small class="text-white-50 d-block mt-1">Ссылка на таблицу с товарами OZON для импорта</small>
                 </div>
 
                 <button class="btn btn-premium w-100 mb-3" id="save-sheet-url-btn">
-                    <i class="bi bi-save"></i> Сохранить ссылку на таблицу
+                    <i class="bi bi-save"></i> Сохранить ссылку OZON
                 </button>
 
                 <hr style="border-color: rgba(255,255,255,0.2);">
 
                 <div class="mb-3">
-                    <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров из Google Sheets</p>
+                    <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров OZON из Google Sheets</p>
                     <button class="btn btn-premium w-100" id="update-db-btn">
-                        <i class="bi bi-arrow-repeat"></i> Импортировать данные
+                        <i class="bi bi-arrow-repeat"></i> Импортировать OZON
                     </button>
                 </div>
 
                 <div id="db-status" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="main-card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-database"></i> База данных (Wildberries)</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-link-45deg"></i> URL Google Sheets (WB)</label>
+                    <input type="text" class="form-control" id="google-sheet-url-wb"
+                        placeholder="https://docs.google.com/spreadsheets/d/...">
+                    <small class="text-white-50 d-block mt-1">Ссылка на таблицу с товарами WB для импорта</small>
+                </div>
+
+                <button class="btn btn-premium w-100 mb-3" id="save-sheet-url-wb-btn">
+                    <i class="bi bi-save"></i> Сохранить ссылку WB
+                </button>
 
                 <hr style="border-color: rgba(255,255,255,0.2);">
 
-                <div class="mt-3">
-                    <h6><i class="bi bi-check-circle"></i> Подключено к БД PostgreSQL</h6>
-                    <small class="text-white-50">Соединение активно</small>
+                <div class="mb-3">
+                    <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров WB из Google Sheets</p>
+                    <button class="btn btn-premium w-100" id="update-db-wb-btn">
+                        <i class="bi bi-arrow-repeat"></i> Импортировать WB
+                    </button>
                 </div>
+
+                <div id="db-status-wb" class="mt-3"></div>
             </div>
         </div>
     </div>
@@ -177,18 +201,27 @@
         container.innerHTML = schedules.map(schedule => `
         <div class="schedule-item" data-id="${schedule.id}">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0">Расписание #${schedule.id}</h6>
+                <h6 class="mb-0">Расписание #${schedule.id} (${schedule.platform ? schedule.platform.toUpperCase() : 'OZON'})</h6>
                 <button class="btn btn-danger btn-sm" onclick="removeSchedule(${schedule.id})">
                     <i class="bi bi-trash"></i>
                 </button>
             </div>
             
-            <div class="mb-2">
-                <label class="form-label">Активно</label>
-                <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'enabled', this.value)">
-                    <option value="false" ${!schedule.enabled ? 'selected' : ''}>Отключено</option>
-                    <option value="true" ${schedule.enabled ? 'selected' : ''}>Включено</option>
-                </select>
+            <div class="row g-2 mb-2">
+                <div class="col-md-6">
+                    <label class="form-label">Платформа</label>
+                    <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'platform', this.value)">
+                        <option value="ozon" ${schedule.platform === 'ozon' || !schedule.platform ? 'selected' : ''}>OZON</option>
+                        <option value="wb" ${schedule.platform === 'wb' ? 'selected' : ''}>Wildberries</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Активно</label>
+                    <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'enabled', this.value)">
+                        <option value="false" ${!schedule.enabled ? 'selected' : ''}>Отключено</option>
+                        <option value="true" ${schedule.enabled ? 'selected' : ''}>Включено</option>
+                    </select>
+                </div>
             </div>
             
             <div class="mb-2">
@@ -218,6 +251,7 @@
     document.getElementById('add-schedule-btn').addEventListener('click', () => {
         schedules.push({
             id: scheduleIdCounter++,
+            platform: 'ozon',
             enabled: false,
             time: '03:00',
             days: [1, 2, 3, 4, 5] // Mon-Fri
@@ -284,11 +318,11 @@
             });
     });
 
-    // Google Sheets URL
+    // Google Sheets URL (OZON)
     document.getElementById('save-sheet-url-btn').addEventListener('click', function () {
         const url = document.getElementById('google-sheet-url').value.trim();
         if (!url) {
-            alert('Введите URL Google Sheets');
+            alert('Введите URL Google Sheets для Ozon');
             return;
         }
 
@@ -298,36 +332,96 @@
         localStorage.setItem('google_sheet_url', url);
 
         setTimeout(() => {
-            document.getElementById('db-status').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL сохранён: ' + url.substring(0, 50) + '...</div>';
+            document.getElementById('db-status').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL Ozon сохранён</div>';
             this.disabled = false;
-            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку на таблицу';
+            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку OZON';
         }, 500);
     });
 
-    // Load saved URL
+    // Google Sheets URL (WB)
+    document.getElementById('save-sheet-url-wb-btn').addEventListener('click', function () {
+        const url = document.getElementById('google-sheet-url-wb').value.trim();
+        if (!url) {
+            alert('Введите URL Google Sheets для Wildberries');
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+
+        localStorage.setItem('google_sheet_url_wb', url);
+
+        setTimeout(() => {
+            document.getElementById('db-status-wb').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL WB сохранён</div>';
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку WB';
+        }, 500);
+    });
+
+    // Load saved URLs
     const savedUrl = localStorage.getItem('google_sheet_url');
     if (savedUrl) {
         document.getElementById('google-sheet-url').value = savedUrl;
     }
-
-    // Database update
+    // Database update (OZON)
     document.getElementById('update-db-btn').addEventListener('click', function () {
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт данных...';
+        const url = document.getElementById('google-sheet-url').value.trim();
+        if (!url) {
+            alert('Сначала укажите и сохраните URL Google Sheets для Ozon');
+            return;
+        }
 
-        fetch('/api/database/update', { method: 'POST' })
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт OZON...';
+
+        fetch('/api/database/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+        })
             .then(r => r.json())
             .then(data => {
                 const statusDiv = document.getElementById('db-status');
                 const alertClass = data.status === 'success' ? 'alert' : 'alert alert-danger';
                 statusDiv.innerHTML = '<div class="' + alertClass + '"><i class="bi bi-' + (data.status === 'success' ? 'check' : 'x') + '-circle"></i> ' + data.message + '</div>';
                 this.disabled = false;
-                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать данные';
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать OZON';
             })
             .catch(err => {
                 document.getElementById('db-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
                 this.disabled = false;
-                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать данные';
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать OZON';
+            });
+    });
+
+    // Database update (WB)
+    document.getElementById('update-db-wb-btn').addEventListener('click', function () {
+        const url = document.getElementById('google-sheet-url-wb').value.trim();
+        if (!url) {
+            alert('Сначала укажите и сохраните URL Google Sheets для WB');
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт WB...';
+
+        fetch('/api/database/update_wb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('db-status-wb');
+                const alertClass = data.status === 'success' ? 'alert' : 'alert alert-danger';
+                statusDiv.innerHTML = '<div class="' + alertClass + '"><i class="bi bi-' + (data.status === 'success' ? 'check' : 'x') + '-circle"></i> ' + data.message + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать WB';
+            })
+            .catch(err => {
+                document.getElementById('db-status-wb').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать WB';
             });
     });
 

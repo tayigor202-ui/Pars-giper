@@ -4,9 +4,18 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-12">
+    <div class="col-md-8">
         <h1 class="page-title"><i class="bi bi-speedometer2"></i> Дашборд мониторинга</h1>
         <p class="page-subtitle">Реал-тайм обзор состояния парсинга и цен</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" autocomplete="off" checked>
+            <label class="btn btn-outline-light px-4" for="ozon-btn">OZON</label>
+
+            <input type="radio" class="btn-check" name="platform-toggle" id="wb-btn" autocomplete="off">
+            <label class="btn btn-outline-light px-4" for="wb-btn">Wildberries</label>
+        </div>
     </div>
 </div>
 
@@ -57,97 +66,98 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-    // Load dashboard stats
-    function loadStats() {
-        console.log('Loading dashboard stats...');
-        fetch('/api/dashboard/stats')
-            .then(response => {
-                console.log('Response status:', response.status);
-                return response.json();
-            })
-            .then(data => {
-                console.log('Stats data:', data);
-                document.getElementById('total-products').textContent = data.total_products || 0;
-                document.getElementById('products-with-prices').textContent = data.products_with_prices || 0;
-                document.getElementById('avg-price').textContent = data.avg_price ? Math.round(data.avg_price) + ' ₽' : '0 ₽';
-                document.getElementById('total-stores').textContent = data.total_stores || 0;
-            })
-            .catch(error => {
-                console.error('Error loading stats:', error);
-                document.getElementById('total-products').textContent = 'ERR';
-                document.getElementById('products-with-prices').textContent = 'ERR';
-                document.getElementById('avg-price').textContent = 'ERR';
-                document.getElementById('total-stores').textContent = 'ERR';
-            });
-    }
+let currentPlatform = 'ozon';
 
-    // Initialize chart
-    const ctx = document.getElementById('priceChart');
-    const chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['Загрузка...'],
-            datasets: [{
-                label: 'Средняя цена (₽)',
-                data: [0],
-                backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                borderColor: 'rgba(255, 255, 255, 0.8)',
-                borderWidth: 2,
-                borderRadius: 8
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    labels: { color: '#fff', font: { size: 14, weight: 'bold' } }
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleColor: '#fff',
-                    bodyColor: '#fff',
-                    borderColor: 'rgba(255, 255, 255, 0.2)',
-                    borderWidth: 1
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        color: '#fff',
-                        callback: value => value + ' ₽'
-                    },
-                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                },
-                x: {
-                    ticks: { color: '#fff' },
-                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
-                }
-            }
-        }
-    });
+// Load dashboard stats
+function loadStats() {
+fetch(`/api/dashboard/stats?platform=${currentPlatform}`)
+.then(response => response.json())
+.then(data => {
+document.getElementById('total-products').textContent = data.total_products || 0;
+document.getElementById('products-with-prices').textContent = data.products_with_prices || 0;
+document.getElementById('avg-price').textContent = data.avg_price ? Math.round(data.avg_price) + ' ₽' : '0 ₽';
+document.getElementById('total-stores').textContent = data.total_stores || 0;
+})
+.catch(error => {
+console.error('Error loading stats:', error);
+});
+}
 
-    // Load chart data
-    fetch('/api/dashboard/chart')
-        .then(response => response.json())
-        .then(data => {
-            if (data.labels && data.labels.length > 0) {
-                chart.data.labels = data.labels;
-                chart.data.datasets[0].data = data.data;
-                chart.update();
-            } else {
-                chart.data.labels = ['Нет данных'];
-                chart.data.datasets[0].data = [0];
-                chart.update();
-            }
-        })
-        .catch(error => {
-            console.error('Error loading chart:', error);
-        });
+// Initialize chart
+const ctx = document.getElementById('priceChart');
+const chart = new Chart(ctx, {
+type: 'bar',
+data: {
+labels: ['Загрузка...'],
+datasets: [{
+label: 'Средняя цена (₽)',
+data: [0],
+backgroundColor: 'rgba(255, 255, 255, 0.3)',
+borderColor: 'rgba(255, 255, 255, 0.8)',
+borderWidth: 2,
+borderRadius: 8
+}]
+},
+options: {
+responsive: true,
+maintainAspectRatio: false,
+plugins: {
+legend: {
+labels: { color: '#fff', font: { size: 14, weight: 'bold' } }
+}
+},
+scales: {
+y: {
+beginAtZero: true,
+ticks: { color: '#fff', callback: value => value + ' ₽' },
+grid: { color: 'rgba(255, 255, 255, 0.1)' }
+},
+x: {
+ticks: { color: '#fff' },
+grid: { color: 'rgba(255, 255, 255, 0.1)' }
+}
+}
+}
+});
 
-    // Load stats on page load
-    document.addEventListener('DOMContentLoaded', loadStats);
+// Load chart data
+function loadChart() {
+fetch(`/api/dashboard/chart?platform=${currentPlatform}`)
+.then(response => response.json())
+.then(data => {
+if (data.labels && data.labels.length > 0) {
+chart.data.labels = data.labels;
+chart.data.datasets[0].data = data.data;
+} else {
+chart.data.labels = ['Нет данных'];
+chart.data.datasets[0].data = [0];
+}
+chart.update();
+})
+.catch(error => console.error('Error loading chart:', error));
+}
+
+// Platform toggle listeners
+document.getElementById('ozon-btn').addEventListener('change', function() {
+if(this.checked) {
+currentPlatform = 'ozon';
+loadStats();
+loadChart();
+}
+});
+
+document.getElementById('wb-btn').addEventListener('change', function() {
+if(this.checked) {
+currentPlatform = 'wb';
+loadStats();
+loadChart();
+}
+});
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', () => {
+loadStats();
+loadChart();
+});
 </script>
 {% endblock %}

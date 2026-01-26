@@ -17,15 +17,18 @@
                 <h4 class="mb-0"><i class="bi bi-terminal"></i> Контроль парсера</h4>
             </div>
             <div class="card-body">
-                <div class="d-grid gap-3 mb-4">
-                    <button id="start-parser-btn" class="btn btn-success btn-lg btn-premium">
-                        <i class="bi bi-play-fill"></i> Запустить парсер принудительно
-                    </button>
-                </div>
-
-                <div class="alert">
-                    <i class="bi bi-info-circle"></i>
-                    <strong>Парсинг запущен.</strong> Ожидайте отчет в Telegram.
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <button id="start-parser-btn" class="btn btn-success btn-lg btn-premium w-100 h-100">
+                            <i class="bi bi-play-fill"></i> Запустить OZON
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <button id="start-wb-parser-btn" class="btn btn-premium btn-lg w-100 h-100"
+                            style="background: linear-gradient(135deg, #9c27b0 0%, #673ab7 100%);">
+                            <i class="bi bi-play-fill"></i> Запустить WB
+                        </button>
+                    </div>
                 </div>
 
                 <div id="status-message"></div>
@@ -39,26 +42,37 @@
 <script>
     document.getElementById('start-parser-btn').addEventListener('click', function () {
         if (!confirm('Запустить парсер Ozon?')) return;
-
         this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
-
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск OZON...';
         fetch('/api/parser/start', { method: 'POST' })
             .then(r => r.json())
             .then(data => {
                 const statusDiv = document.getElementById('status-message');
-                if (data.status === 'success') {
-                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
-                } else {
-                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
-                }
+                statusDiv.innerHTML = '<div class="alert"><i class="bi bi-info-circle"></i> ' + data.message + '</div>';
                 this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить парсер принудительно';
-            })
-            .catch(err => {
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить OZON';
+            }).catch(err => {
                 document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
                 this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить парсер принудительно';
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить OZON';
+            });
+    });
+
+    document.getElementById('start-wb-parser-btn').addEventListener('click', function () {
+        if (!confirm('Запустить парсер Wildberries?')) return;
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск WB...';
+        fetch('/api/wb/parser/start', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('status-message');
+                statusDiv.innerHTML = '<div class="alert" style="border-left-color: #9c27b0;"><i class="bi bi-info-circle"></i> ' + data.message + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить WB';
+            }).catch(err => {
+                document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить WB';
             });
     });
 </script>

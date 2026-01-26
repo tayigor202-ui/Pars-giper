@@ -152,7 +152,18 @@ def start_parser():
     try:
         # Start run_all.bat in separate window
         subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', 'run_all.bat'], shell=False)
-        return jsonify({'status': 'success', 'message': 'Парсинг запущен, ожидайте отчет в Telegram'})
+        return jsonify({'status': 'success', 'message': 'Парсинг OZON запущен'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/wb/parser/start', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def start_wb_parser():
+    try:
+        # Start run_wb.bat in separate window
+        subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', 'run_wb.bat'], shell=False)
+        return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -161,21 +172,45 @@ def start_parser():
 @permission_required('can_import_data')
 def update_database():
     try:
-        # Run import_from_sheets.py
-        result = subprocess.run(['python', 'import_from_sheets.py'], 
-                              capture_output=True, text=True, timeout=60)
+        url = request.json.get('url') if request.is_json else None
+        cmd = ['python', 'import_from_sheets.py']
+        if url: cmd.append(url)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        
         if result.returncode == 0:
-            return jsonify({'status': 'success', 'message': 'База данных обновлена из Google Sheets'})
+            return jsonify({'status': 'success', 'message': 'База OZON обновлена'})
         else:
-            return jsonify({'status': 'error', 'message': f'Ошибка: {result.stderr}'})
+            return jsonify({'status': 'error', 'message': f'Ошибка OZON: {result.stderr}'})
     except subprocess.TimeoutExpired:
-        return jsonify({'status': 'error', 'message': 'Превышено время ожидания'})
+        return jsonify({'status': 'error', 'message': 'Превышено время ожидания OZON'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/database/update_wb', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def update_database_wb():
+    try:
+        url = request.json.get('url') if request.is_json else None
+        cmd = ['python', 'import_wb_from_sheets.py']
+        if url: cmd.append(url)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        
+        if result.returncode == 0:
+            return jsonify({'status': 'success', 'message': 'База Wildberries обновлена'})
+        else:
+            return jsonify({'status': 'error', 'message': f'Ошибка WB: {result.stderr}'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'status': 'error', 'message': 'Превышено время ожидания WB'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 @login_required  
 def dashboard_stats():
+    platform = request.args.get('platform', 'ozon')
     try:
         print("[DEBUG] Connecting to database...")
         conn = psycopg2.connect(
@@ -189,17 +224,16 @@ def dashboard_stats():
         
         print("[DEBUG] Querying total products...")
         # Total products (unique SKUs)
-        cur.execute("SELECT COUNT(DISTINCT sku) FROM prices")
+        cur.execute("SELECT COUNT(DISTINCT sku) FROM prices WHERE platform = %s", (platform,))
         total_products = cur.fetchone()[0]
         
         print("[DEBUG] Querying products with prices...")
         # Products with prices - clean price_card and convert to numeric
-        # Remove spaces and ruble symbol: "62 531 ₽" -> "62531"
         cur.execute("""
             SELECT COUNT(DISTINCT sku) FROM prices 
-            WHERE price_card IS NOT NULL 
+            WHERE platform = %s AND price_card IS NOT NULL 
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
-        """)
+        """, (platform,))
         products_with_prices = cur.fetchone()[0]
         
         print("[DEBUG] Querying average price...")
@@ -207,14 +241,14 @@ def dashboard_stats():
         cur.execute("""
             SELECT AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) 
             FROM prices 
-            WHERE price_card IS NOT NULL 
+            WHERE platform = %s AND price_card IS NOT NULL 
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
-        """)
+        """, (platform,))
         avg_price = cur.fetchone()[0] or 0
         
         print("[DEBUG] Querying total stores...")
         # Total stores
-        cur.execute("SELECT COUNT(DISTINCT competitor_name) FROM prices WHERE competitor_name IS NOT NULL")
+        cur.execute("SELECT COUNT(DISTINCT competitor_name) FROM prices WHERE platform = %s AND competitor_name IS NOT NULL", (platform,))
         total_stores = cur.fetchone()[0]
         
         cur.close()
@@ -237,6 +271,7 @@ def dashboard_stats():
 @app.route('/api/dashboard/chart', methods=['GET'])
 @login_required
 def dashboard_chart():
+    platform = request.args.get('platform', 'ozon')
     try:
         conn = psycopg2.connect(
             dbname=os.getenv('DB_NAME'),
@@ -253,13 +288,13 @@ def dashboard_chart():
                 competitor_name,
                 AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) as avg_price
             FROM prices 
-            WHERE competitor_name IS NOT NULL 
+            WHERE platform = %s AND competitor_name IS NOT NULL 
             AND price_card IS NOT NULL
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
             GROUP BY competitor_name
             ORDER BY avg_price DESC
             LIMIT 10
-        """)
+        """, (platform,))
         
         results = cur.fetchall()
         cur.close()
@@ -377,7 +412,7 @@ if __name__ == '__main__':
     print("\n" + "="*70)
     print(">>> Запуск веб-интерфейса парсера Ozon")
     print("="*70)
-    print(f"URL: http://localhost:3454")
+    print(f"URL: http://localhost:3455")
     print("Логин: admin (по умолчанию)")
     print("Пароль: admin (ИЗМЕНИТЕ В ПРОДАКШЕНЕ!)")
     print("="*70 + "\n")
@@ -386,4 +421,4 @@ if __name__ == '__main__':
     print(">>> Инициализация планировщика задач...")
     scheduler.init_scheduler()
     
-    app.run(host='0.0.0.0', port=3454, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=3455, debug=False, threaded=True)
