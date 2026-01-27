@@ -3,40 +3,57 @@
 {% block title %}Управление парсером - OZON Parser{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
+<div class="row mb-4 reveal">
     <div class="col-12">
-        <h1 class="page-title"><i class="bi bi-play-circle"></i> Управление парсером</h1>
-        <p class="page-subtitle">Запуск и контроль процесса парсинга Ozon</p>
+        <h1 class="page-title"><i class="bi bi-cpu text-neon-cyan"></i> Центр управления</h1>
+        <p class="page-subtitle">Запуск и мониторинг высокоскоростных потоков парсинга</p>
     </div>
 </div>
 
 <div class="row">
     <div class="col-md-12">
-        <div class="main-card">
-            <div class="card-header">
-                <h4 class="mb-0"><i class="bi bi-terminal"></i> Контроль парсера</h4>
+        <div class="main-card reveal" style="animation-delay: 0.1s">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0 fw-bold"><i class="bi bi-terminal text-neon-cyan"></i> Консоль оператора</h4>
+                <div class="text-neon-cyan small"><i class="bi bi-broadcast"></i> SYSTEM READY</div>
             </div>
             <div class="card-body">
-                <div class="row g-3 mb-4">
+                <div class="row g-4 mb-5">
                     <div class="col-md-4">
-                        <button id="start-parser-btn" class="btn btn-success btn-lg btn-premium w-100 h-100">
-                            <i class="bi bi-play-fill"></i> Запустить OZON
+                        <button id="start-parser-btn" class="btn btn-premium w-100 h-100"
+                            style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);">
+                            <i class="bi bi-play-circle-fill me-2"></i> Запустить OZON
                         </button>
                     </div>
                     <div class="col-md-4">
-                        <button id="start-wb-parser-btn" class="btn btn-premium btn-lg w-100 h-100"
+                        <button id="start-wb-parser-btn" class="btn btn-premium w-100 h-100"
                             style="background: linear-gradient(135deg, #9c27b0 0%, #673ab7 100%);">
-                            <i class="bi bi-play-fill"></i> Запустить WB
+                            <i class="bi bi-play-circle-fill me-2"></i> Запустить WB
                         </button>
                     </div>
                     <div class="col-md-4">
-                        <button id="stop-parser-btn" class="btn btn-danger btn-lg w-100 h-100">
-                            <i class="bi bi-stop-fill"></i> Остановить все
+                        <button id="stop-parser-btn" class="btn btn-premium w-100 h-100"
+                            style="background: linear-gradient(135deg, #cb2d3e 0%, #ef473a 100%);">
+                            <i class="bi bi-stop-circle-fill me-2"></i> Принудительная остановка
                         </button>
                     </div>
                 </div>
 
-                <div id="status-message"></div>
+                <div id="status-message" class="reveal" style="animation-delay: 0.3s">
+                    <!-- Status messages will appear here -->
+                </div>
+
+                <div class="mt-4 p-4 rounded-4 reveal"
+                    style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-glass); animation-delay: 0.4s">
+                    <div class="d-flex align-items-center mb-3 text-secondary small text-uppercase fw-bold"
+                        style="letter-spacing:1px">
+                        <i class="bi bi-info-square me-2"></i> Лог операций
+                    </div>
+                    <div id="mini-log" class="font-monospace small"
+                        style="color: rgba(255,255,255,0.6); max-height: 150px; overflow-y: auto;">
+                        > Ожидание команды пользователя...
+                    </div>
+                </div>
             </div>
         </div>
     </div>

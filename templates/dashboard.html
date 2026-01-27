@@ -3,61 +3,63 @@
 {% block title %}Дашборд - OZON Parser{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
+<div class="row mb-4 reveal">
     <div class="col-md-8">
-        <h1 class="page-title"><i class="bi bi-speedometer2"></i> Дашборд мониторинга</h1>
+        <h1 class="page-title"><i class="bi bi-speedometer2 text-neon-cyan"></i> Дашборд мониторинга</h1>
         <p class="page-subtitle">Реал-тайм обзор состояния парсинга и цен</p>
     </div>
     <div class="col-md-4 text-end">
-        <div class="btn-group" role="group">
+        <div class="btn-group reveal" style="animation-delay:0.1s" role="group">
             <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" autocomplete="off" checked>
-            <label class="btn btn-outline-light px-4" for="ozon-btn">OZON</label>
+            <label class="btn btn-outline-info px-4 border-2" for="ozon-btn">OZON</label>
 
             <input type="radio" class="btn-check" name="platform-toggle" id="wb-btn" autocomplete="off">
-            <label class="btn btn-outline-light px-4" for="wb-btn">Wildberries</label>
+            <label class="btn btn-outline-info px-4 border-2" for="wb-btn">Wildberries</label>
         </div>
     </div>
 </div>
 
-<div class="row g-4 mb-4">
+<div class="row g-4 mb-5 reveal" style="animation-delay:0.2s">
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">Всего товаров</div>
-            <div class="stat-value" id="total-products">—</div>
+            <div class="stat-value text-neon-cyan" id="total-products">—</div>
             <i class="bi bi-box-seam stat-icon"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">С ценами</div>
-            <div class="stat-value" id="products-with-prices">—</div>
+            <div class="stat-value text-neon-cyan" id="products-with-prices">—</div>
             <i class="bi bi-check-circle stat-icon"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">Средняя цена</div>
-            <div class="stat-value" id="avg-price">—</div>
+            <div class="stat-value text-neon-gold" id="avg-price">—</div>
             <i class="bi bi-currency-dollar stat-icon"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">Магазинов</div>
-            <div class="stat-value" id="total-stores">—</div>
+            <div class="stat-value text-neon-cyan" id="total-stores">—</div>
             <i class="bi bi-shop stat-icon"></i>
         </div>
     </div>
 </div>
 
-<div class="row">
+<div class="row reveal" style="animation-delay:0.3s">
     <div class="col-12">
         <div class="main-card">
-            <div class="card-header">
-                <h4 class="mb-0"><i class="bi bi-graph-up"></i> График средних цен по магазинам</h4>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0 fw-bold"><i class="bi bi-graph-up text-neon-cyan"></i> Тренд цен по конкурентам</h4>
+                <div class="badge bg-info-subtle text-info border border-info-subtle px-3 py-2 rounded-pill">Live Update
+                </div>
             </div>
             <div class="card-body">
-                <canvas id="priceChart"></canvas>
+                <canvas id="priceChart" style="height: 450px;"></canvas>
             </div>
         </div>
     </div>
@@ -93,10 +95,21 @@
             datasets: [{
                 label: 'Средняя цена (₽)',
                 data: [0],
-                backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                borderColor: 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: (context) => {
+                    const chart = context.chart;
+                    const { ctx, chartArea } = chart;
+                    if (!chartArea) return null;
+                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                    gradient.addColorStop(0, 'rgba(0, 210, 255, 0.2)');
+                    gradient.addColorStop(1, 'rgba(0, 210, 255, 0.8)');
+                    return gradient;
+                },
+                borderColor: '#00d2ff',
                 borderWidth: 2,
-                borderRadius: 8
+                borderRadius: 12,
+                hoverBackgroundColor: 'rgba(0, 210, 255, 1)',
+                hoverBorderColor: '#fff',
+                hoverBorderWidth: 3
             }]
         },
         options: {
@@ -104,18 +117,26 @@
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    labels: { color: '#fff', font: { size: 14, weight: 'bold' } }
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(10, 10, 12, 0.9)',
+                    titleFont: { size: 16, weight: 'bold' },
+                    bodyFont: { size: 14 },
+                    padding: 15,
+                    cornerRadius: 12,
+                    displayColors: false
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    ticks: { color: '#fff', callback: value => value + ' ₽' },
-                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    ticks: { color: 'rgba(255,255,255,0.6)', font: { family: 'Inter' }, callback: value => value + ' ₽' },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
                 },
                 x: {
-                    ticks: { color: '#fff' },
-                    grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    ticks: { color: 'rgba(255,255,255,0.6)', font: { family: 'Inter' } },
+                    grid: { display: false }
                 }
             }
         }

@@ -8,6 +8,14 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
+        :root {
+            --primary: #00d2ff;
+            --accent: #667eea;
+            --bg-dark: #0a0a0c;
+            --card-glass: rgba(15, 15, 20, 0.7);
+            --border-glass: rgba(255, 255, 255, 0.12);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -16,33 +24,48 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--bg-dark) url('/static/img/ui_background.png') no-repeat center center fixed;
+            background-size: cover;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: #fff;
         }
 
         .login-container {
             width: 100%;
-            max-width: 480px;
+            max-width: 450px;
             padding: 2rem;
+            z-index: 1;
         }
 
         .login-card {
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(20px);
-            border-radius: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 3rem;
-            animation: slideUp 0.6s ease forwards;
+            background: var(--card-glass);
+            backdrop-filter: blur(40px);
+            border-radius: 32px;
+            border: 1px solid var(--border-glass);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            padding: 3.5rem;
+            animation: slideUp 0.8s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
         }
 
         @keyframes slideUp {
             from {
                 opacity: 0;
-                transform: translateY(30px);
+                transform: translateY(40px);
             }
 
             to {
@@ -53,86 +76,90 @@
 
         .logo {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 2.5rem;
         }
 
         .logo i {
-            font-size: 4rem;
-            color: #fff;
-            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+            font-size: 4.5rem;
+            color: var(--primary);
+            filter: drop-shadow(0 0 15px rgba(0, 210, 255, 0.4));
         }
 
         .logo h1 {
             color: #fff;
-            font-size: 2rem;
+            font-size: 2.2rem;
             font-weight: 900;
-            text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.3);
+            letter-spacing: -1px;
             margin-top: 1rem;
         }
 
         .logo p {
-            color: rgba(255, 255, 255, 0.9);
+            color: rgba(255, 255, 255, 0.5);
             font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 700;
         }
 
         .form-label {
-            color: #fff;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.6rem;
         }
 
         .form-control {
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid var(--border-glass);
+            border-radius: 14px;
             color: #fff !important;
-            padding: 0.875rem 1.25rem;
+            padding: 1rem 1.4rem;
             font-size: 1rem;
-            font-weight: 500;
-            transition: all 0.3s ease;
-        }
-
-        .form-control::placeholder {
-            color: rgba(255, 255, 255, 0.5);
+            transition: all 0.3s;
         }
 
         .form-control:focus {
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.5);
-            color: #fff !important;
-            box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.4);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0, 210, 255, 0.15);
         }
 
         .btn-login {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--accent) 0%, #4a148c 100%);
             border: none;
-            border-radius: 12px;
-            padding: 1rem;
-            font-weight: 700;
+            border-radius: 14px;
+            padding: 1.1rem;
+            font-weight: 800;
             font-size: 1.1rem;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 2px;
             color: #fff;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            margin-top: 1rem;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            margin-top: 1.5rem;
         }
 
         .btn-login:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(102, 126, 234, 0.4);
+            filter: brightness(1.2);
         }
 
         .alert {
-            background: rgba(255, 99, 132, 0.2);
+            background: rgba(255, 71, 87, 0.1);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 99, 132, 0.3);
-            border-radius: 12px;
-            color: #fff;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 14px;
+            color: #ff4757;
             padding: 1rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
         }
+    </style>
     </style>
 </head>
 
