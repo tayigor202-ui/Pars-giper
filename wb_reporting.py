@@ -18,10 +18,9 @@ def generate_wb_report():
     try:
         conn = psycopg2.connect(DB_URL)
         query = """
-            SELECT sp_code, sku, name, competitor_name, price_card, price_nocard, price_old, status 
-            FROM public.prices 
-            WHERE platform = 'wb'
-            ORDER BY sp_code, competitor_name
+            SELECT sku, competitor_name, price_card, price_nocard, price_old, status 
+            FROM public.wb_prices 
+            ORDER BY sku, competitor_name
         """
         df = pd.read_sql(query, conn)
         conn.close()
@@ -29,45 +28,42 @@ def generate_wb_report():
         if len(df) == 0:
             print("[EXCEL] No WB data to report")
             return None
-            
-        # Normalize SP-Codes
-        df['sp_code'] = df['sp_code'].astype(str).str.strip()
-        unique_products = sorted([x for x in df['sp_code'].unique() if x and x.lower() != 'none'])
         
+        # Create report rows - one row per SKU per seller
         report_rows = []
-        for code in unique_products:
-            product_data = df[df['sp_code'] == code]
-            if len(product_data) == 0: continue
+        
+        for _, row in df.iterrows():
+            sku = row['sku']
+            seller = row['competitor_name']
+            price_card = row['price_card']
+            price_nocard = row['price_nocard']
+            price_old = row['price_old']
+            status = row.get('status')
             
-            row = {
-                'SP-Code': code,
-                'Артикул (WB)': product_data.iloc[0]['sku'], 
-                'Наименование': product_data.iloc[0]['name']
+            # Format values
+            def format_price(val, st):
+                if st == 'OUT_OF_STOCK': 
+                    return 'Товар закончился'
+                if pd.notna(val) and val != 0: 
+                    return val
+                if st == 'ANTIBOT': 
+                    return 'Ошибка (Антибот)'
+                if st == 'ERROR': 
+                    return 'Ошибка парсинга'
+                return ''
+            
+            # Create row
+            report_row = {
+                'SKU': sku,
+                'Продавец': seller,
+                'Промо': format_price(price_card, status),
+                'Цена': format_price(price_nocard, status),
+                'Старая': format_price(price_old, status)
             }
             
-            for _, item in product_data.iterrows():
-                store = item['competitor_name']
-                status = item.get('status')
-                
-                def format_val(val, st):
-                    if st == 'OUT_OF_STOCK': return 'Товар закончился'
-                    if pd.notna(val) and val != 0: return val
-                    if st == 'ANTIBOT': return 'Ошибка (Антибот)'
-                    if st == 'ERROR': return 'Ошибка парсинга'
-                    return ''
-
-                row[f"{store} - С картой"] = format_val(item['price_card'], status)
-                row[f"{store} - Без карты"] = format_val(item['price_nocard'], status)
-                row[f"{store} - Старая цена"] = format_val(item['price_old'], status)
-            
-            report_rows.append(row)
+            report_rows.append(report_row)
         
         result_df = pd.DataFrame(report_rows)
-        
-        # Column sorting
-        base_cols = ['SP-Code', 'Артикул (WB)', 'Наименование']
-        store_cols = sorted([c for c in result_df.columns if c not in base_cols])
-        result_df = result_df[base_cols + store_cols]
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"wb_prices_report_{timestamp}.xlsx"
@@ -81,20 +77,31 @@ def generate_wb_report():
             header_font = Font(bold=True, color="FFFFFF", size=11)
             border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
             
+            # Apply header styles
             for cell in ws[1]:
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
                 cell.border = border
-                
-            for column in ws.columns:
-                max_len = 0
-                col_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if cell.value: max_len = max(max_len, len(str(cell.value)))
-                    except: pass
-                ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+            
+            # Set column widths
+            ws.column_dimensions['A'].width = 15  # SKU
+            ws.column_dimensions['B'].width = 35  # Продавец
+            ws.column_dimensions['C'].width = 15  # Промо
+            ws.column_dimensions['D'].width = 15  # Цена
+            ws.column_dimensions['E'].width = 15  # Старая
+            
+            # Apply borders to all cells
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=5):
+                for cell in row:
+                    cell.border = border
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+            
+            # Freeze panes
+            ws.freeze_panes = 'A2'
+            
+            # Add filters
+            ws.auto_filter.ref = ws.dimensions
                 
         print(f"[EXCEL] ✅ WB Report created: {filename}")
         return filename

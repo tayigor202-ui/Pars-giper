@@ -27,6 +27,7 @@ wheels/
 # Logs and runtime
 logs/
 *.log
+*.txt
 parser_status.json
 proxy_log.txt
 
@@ -36,6 +37,11 @@ chrome_profiles/
 
 # Excel reports
 ozon_prices_report_*.xlsx
+wb_prices_report_*.xlsx
+
+# Debug files
+debug_api_*.json
+debug_*.py
 
 # Local settings
 web_settings.json

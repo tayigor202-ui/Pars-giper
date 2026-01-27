@@ -3,7 +3,6 @@ import psycopg2
 import pandas as pd
 from dotenv import load_dotenv
 import re
-import json
 
 # Load environment variables
 load_dotenv()
@@ -18,57 +17,35 @@ if not DB_URL:
     DB_NAME = os.getenv('DB_NAME')
     DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Config file
-CONFIG_FILE = 'config.json'
+# Load Wildberries Google Sheets URL from config.json
+import json
+with open('config.json', 'r', encoding='utf-8') as f:
+    config = json.load(f)
+    SPREADSHEET_URL = config.get('wb_spreadsheet_url', '')
 
-def get_config_url():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config.get('ozon_spreadsheet_url')
-        except: pass
-    return None
+if not SPREADSHEET_URL:
+    print("[ERROR] Wildberries Sheet URL not found in config.json!")
+    exit(1)
 
-def get_export_url(url):
-    """Конвертирует обычную ссылку Google Sheets в ссылку для экспорта CSV"""
-    if not url: return None
-    if '/export?format=csv' in url: return url
-    match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-    if match:
-        spreadsheet_id = match.group(1)
-        return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
-    return url
+print(f"[INFO] Using Wildberries Sheet URL: {SPREADSHEET_URL}")
 
-import sys
-if len(sys.argv) > 1:
-    SPREADSHEET_URL = get_export_url(sys.argv[1])
-    print(f"[SHEETS] Using provided URL: {SPREADSHEET_URL}")
-else:
-    config_url = get_config_url()
-    if config_url:
-        SPREADSHEET_URL = get_export_url(config_url)
-        print(f"[SHEETS] Using URL from config: {SPREADSHEET_URL}")
-    else:
-        print("[SHEETS] ERROR: No URL provided and no config found!")
-        sys.exit(1)
-
-def extract_sku_from_url(url_or_sku):
-    """Извлекает SKU из URL или возвращает как есть, если это уже SKU"""
-    if pd.isna(url_or_sku):
+def extract_sku_from_url(value):
+    """
+    Извлекает SKU из URL или возвращает значение как есть, если это уже SKU.
+    Поддерживает Wildberries URLs.
+    """
+    if pd.isna(value) or value == '':
         return None
     
-    value = str(url_or_sku).strip()
+    value = str(value).strip()
     
-    # Если это URL, извлекаем SKU
-    if 'ozon.ru' in value or 'http' in value:
-        # Пытаемся найти числовой SKU в URL
-        match = re.search(r'/(\d+)/?', value)
-        if match:
-            return match.group(1)
-        return None
+    # Wildberries URL patterns
+    # Example: https://www.wildberries.ru/catalog/123456789/detail.aspx
+    wb_match = re.search(r'wildberries\.ru/catalog/(\d+)', value)
+    if wb_match:
+        return wb_match.group(1)
     
-    # Если это уже число, возвращаем как есть
+    # If it's already a number, return as is
     if value.replace('.', '').replace(',', '').isdigit():
         return value.replace('.0', '').replace(',', '')
     
@@ -76,15 +53,25 @@ def extract_sku_from_url(url_or_sku):
 
 def load_from_google_sheets():
     """
-    Загружает данные из Google Sheets в базу данных.
+    Загружает данные из Google Sheets в таблицу wb_prices.
     Структура: СП-КОД | Название | SKU_магазин1 | SKU_магазин2 | ...
     """
     
-    print("[SHEETS] Загрузка данных из Google Sheets...")
+    print("[SHEETS] Загрузка данных из Google Sheets (Wildberries)...")
     
     try:
         # Read CSV directly from Google Sheets export URL
-        df = pd.read_csv(SPREADSHEET_URL)
+        # The first row contains the actual column names, so we use it as header
+        df = pd.read_csv(SPREADSHEET_URL, header=0)
+        
+        # Check if columns are still "Unnamed" - if so, the first row is the header
+        if all('unnamed' in str(col).lower() for col in df.columns):
+            # Re-read with first row as header
+            df = pd.read_csv(SPREADSHEET_URL)
+            # Use first row as column names
+            df.columns = df.iloc[0]
+            # Drop the first row since it's now the header
+            df = df[1:].reset_index(drop=True)
         
         print(f"[SHEETS] OK Загружено {len(df)} строк из Google Sheets")
         print(f"[SHEETS] Колонки: {list(df.columns)}")
@@ -107,13 +94,13 @@ def load_from_google_sheets():
 
         # Fallbacks
         if sp_kod_col is None:
-            # Assume 2nd column if not found (usually 1st is name, 2nd is code, or vice versa)
+            # Assume 2nd column if not found
             candidate = df.columns[1] if len(df.columns) > 1 else df.columns[0]
             print(f"[SHEETS] WARNING Колонка СП-КОД не найдена явно. Используем: {candidate}")
             sp_kod_col = candidate
         
         if name_col is None:
-             # Assume 1st column
+            # Assume 1st column
             print(f"[SHEETS] WARNING Колонка Название не найдена явно. Используем: {df.columns[0]}")
             name_col = df.columns[0]
 
@@ -134,16 +121,15 @@ def load_from_google_sheets():
         cur = conn.cursor()
         
         # CLEAR OLD DATA BEFORE IMPORT
-        print("[DB] Очистка таблицы prices (Ozon)...")
-        cur.execute("DELETE FROM public.prices")
+        print("[DB] Очистка таблицы wb_prices (Wildberries)...")
+        cur.execute("DELETE FROM public.wb_prices")
         conn.commit()
-        print("[DB] OK Данные Ozon очищены, начинаем импорт")
+        print("[DB] OK Данные Wildberries очищены, начинаем импорт")
         
         # Import data
         imported_products = 0
         total_skus = 0
         skipped_rows = 0
-        skipped_skus = 0
         
         for idx, row in df.iterrows():
             sp_kod = str(row[sp_kod_col]).strip() if pd.notna(row[sp_kod_col]) else ''
@@ -160,18 +146,19 @@ def load_from_google_sheets():
                 sku = extract_sku_from_url(raw_value)
                 competitor_name = sku_col.strip()
                 
-                # Use ON CONFLICT to be safe
-                cur.execute("""
-                    INSERT INTO public.prices (sku, name, competitor_name, sp_code) 
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (sku, competitor_name) 
-                    DO UPDATE SET 
-                        name = EXCLUDED.name,
-                        sp_code = EXCLUDED.sp_code
-                """, (sku, name if name else None, competitor_name, sp_kod))
-                
-                total_skus += 1
-                product_has_skus = True
+                if sku:  # Only insert if SKU is not None
+                    # Use ON CONFLICT to be safe
+                    cur.execute("""
+                        INSERT INTO public.wb_prices (sku, name, competitor_name, sp_code) 
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (sku, competitor_name) 
+                        DO UPDATE SET 
+                            name = EXCLUDED.name,
+                            sp_code = EXCLUDED.sp_code
+                    """, (sku, name if name else None, competitor_name, sp_kod))
+                    
+                    total_skus += 1
+                    product_has_skus = True
             
             if product_has_skus:
                 imported_products += 1
@@ -189,21 +176,20 @@ def load_from_google_sheets():
         print(f"\n[SHEETS] OK Обработано товаров: {imported_products}")
         print(f"[SHEETS] OK Добавлено SKU в базу: {total_skus}")
         print(f"[SHEETS] WARNING Пропущено строк: {skipped_rows}")
-        print(f"[SHEETS] WARNING Пропущено SKU: {skipped_skus}")
         
         # Verify import
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM public.prices WHERE sku IS NOT NULL")
+        cur.execute("SELECT COUNT(*) FROM public.wb_prices WHERE sku IS NOT NULL")
         total = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(DISTINCT competitor_name) FROM public.prices WHERE competitor_name IS NOT NULL")
+        cur.execute("SELECT COUNT(DISTINCT competitor_name) FROM public.wb_prices WHERE competitor_name IS NOT NULL")
         stores = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(DISTINCT name) FROM public.prices WHERE name IS NOT NULL")
+        cur.execute("SELECT COUNT(DISTINCT name) FROM public.wb_prices WHERE name IS NOT NULL")
         products = cur.fetchone()[0]
         cur.close()
         conn.close()
         
-        print(f"\n[DB] Всего SKU в базе: {total}")
+        print(f"\n[DB] Всего SKU в базе (wb_prices): {total}")
         print(f"[DB] Уникальных товаров: {products}")
         print(f"[DB] Уникальных магазинов: {stores}")
         

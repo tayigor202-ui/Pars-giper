@@ -147,8 +147,8 @@ def save_to_db(data):
         try:
             cur.execute("SAVEPOINT sp_wb")
             cur.execute("""
-                INSERT INTO public.prices (sku, competitor_name, platform, price_card, price_nocard, price_old, name, status, created_at)
-                VALUES (%s, %s, 'wb', %s, %s, %s, %s, %s, NOW())
+                INSERT INTO public.wb_prices (sku, name, competitor_name, price_card, price_nocard, price_old, status, created_at, sp_code)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
                 ON CONFLICT (sku, competitor_name) 
                 DO UPDATE SET 
                     price_card = EXCLUDED.price_card,
@@ -156,15 +156,17 @@ def save_to_db(data):
                     price_old = EXCLUDED.price_old,
                     name = EXCLUDED.name,
                     status = EXCLUDED.status,
+                    sp_code = EXCLUDED.sp_code,
                     created_at = NOW()
             """, (
                 str(data['sku']), 
+                data.get('product_name'), 
                 data['competitor_name'],
                 data.get('price_card'), 
                 data.get('price_nocard'),
                 data.get('price_old'), 
-                data.get('product_name'), 
-                data.get('status')
+                data.get('status'),
+                data.get('sp_code')
             ))
             cur.execute("RELEASE SAVEPOINT sp_wb")
             conn.commit()
@@ -186,7 +188,7 @@ def run_wb_silent_parsing():
     try:
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT sku, competitor_name FROM public.prices WHERE platform = 'wb' AND sku IS NOT NULL AND sku != ''")
+        cur.execute("SELECT sku, competitor_name, sp_code FROM public.wb_prices WHERE sku IS NOT NULL AND sku != ''")
         items = cur.fetchall()
         cur.close()
         conn.close()
@@ -194,7 +196,7 @@ def run_wb_silent_parsing():
 
     print(f"[SILENT] Starting parsing for {len(items)} items...")
     
-    for idx, (sku, comp_name) in enumerate(items, 1):
+    for idx, (sku, comp_name, sp_code) in enumerate(items, 1):
         print(f"[{idx}/{len(items)}] WB SKU {sku}...", end=' ', flush=True)
         res = parser.fetch_price(sku)
         
@@ -205,6 +207,7 @@ def run_wb_silent_parsing():
 
         res['sku'] = sku
         res['competitor_name'] = comp_name
+        res['sp_code'] = sp_code
         
         if res['status'] == 'OK':
             print(f"OK! {res['price_card']} / {res.get('price_nocard')} / {res.get('price_old')} руб.")

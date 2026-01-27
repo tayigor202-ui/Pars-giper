@@ -12,6 +12,21 @@ import scheduler
 from user_management import UserManager
 from functools import wraps
 
+CONFIG_FILE = 'config.json'
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {
+        "ozon_spreadsheet_url": "",
+        "wb_spreadsheet_url": ""
+    }
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -86,8 +101,14 @@ def permission_required(permission):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if not current_user.is_authenticated:
+                # For API endpoints, return JSON error instead of redirect
+                if request.path.startswith('/api/'):
+                    return jsonify({'status': 'error', 'message': 'Требуется авторизация'}), 401
                 return redirect(url_for('login'))
             if not current_user.has_permission(permission):
+                # For API endpoints, return JSON error instead of redirect
+                if request.path.startswith('/api/'):
+                    return jsonify({'status': 'error', 'message': 'Недостаточно прав'}), 403
                 flash('У вас нет доступа к этой функции', 'error')
                 return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
@@ -111,7 +132,7 @@ def login():
         
         if user_data and UserManager.verify_password(password, user_data['password_hash']):
             user = User(user_data)
-            login_user(user)
+            login_user(user, remember=True)
             
             # Update last login
             UserManager.update_last_login(user_data['id'])
@@ -172,7 +193,13 @@ def start_wb_parser():
 @permission_required('can_import_data')
 def update_database():
     try:
+        config = load_config()
         url = request.json.get('url') if request.is_json else None
+        
+        # If no URL provided in request, use the one from config
+        if not url:
+            url = config.get('ozon_spreadsheet_url')
+            
         cmd = ['python', 'import_from_sheets.py']
         if url: cmd.append(url)
         
@@ -192,7 +219,13 @@ def update_database():
 @permission_required('can_import_data')
 def update_database_wb():
     try:
+        config = load_config()
         url = request.json.get('url') if request.is_json else None
+        
+        # If no URL provided in request, use the one from config
+        if not url:
+            url = config.get('wb_spreadsheet_url')
+            
         cmd = ['python', 'import_wb_from_sheets.py']
         if url: cmd.append(url)
         
@@ -207,12 +240,187 @@ def update_database_wb():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/api/config', methods=['GET'])
+@login_required
+@permission_required('can_view_settings')
+def get_config_api():
+    return jsonify(load_config())
+
+@app.route('/api/config', methods=['POST'])
+@login_required
+@permission_required('can_edit_database_settings')
+def save_config_api():
+    try:
+        new_config = request.json
+        current_config = load_config()
+        current_config.update(new_config)
+        save_config(current_config)
+        return jsonify({'status': 'success', 'message': 'Настройки сохранены'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# TEMPORARY: Force update endpoint without auth (REMOVE IN PRODUCTION!)
+@app.route('/api/config/force_update', methods=['POST'])
+def force_update_config_api():
+    """TEMPORARY endpoint to update config without auth - for debugging only!"""
+    try:
+        new_config = request.json
+        current_config = load_config()
+        current_config.update(new_config)
+        save_config(current_config)
+        return jsonify({'status': 'success', 'message': 'Config updated (NO AUTH)', 'config': current_config})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# Telegram Settings API
+@app.route('/api/telegram/settings', methods=['GET'])
+@login_required
+@permission_required('can_view_settings')
+def get_telegram_settings():
+    """Get Telegram settings from .env"""
+    try:
+        return jsonify({
+            'bot_token': os.getenv('TG_BOT_TOKEN', ''),
+            'chat_id': os.getenv('TG_CHAT_ID', '')
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/telegram/settings', methods=['POST'])
+@login_required
+@permission_required('can_edit_database_settings')
+def save_telegram_settings():
+    """Save Telegram settings to .env file"""
+    try:
+        data = request.json
+        bot_token = data.get('bot_token', '').strip()
+        chat_id = data.get('chat_id', '').strip()
+        
+        if not bot_token or not chat_id:
+            return jsonify({'status': 'error', 'message': 'Bot Token и Chat ID обязательны'}), 400
+        
+        # Read current .env file
+        env_path = '.env'
+        env_lines = []
+        
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                env_lines = f.readlines()
+        
+        # Update or add TG_BOT_TOKEN and TG_CHAT_ID
+        updated_bot_token = False
+        updated_chat_id = False
+        
+        for i, line in enumerate(env_lines):
+            if line.startswith('TG_BOT_TOKEN='):
+                env_lines[i] = f'TG_BOT_TOKEN={bot_token}\n'
+                updated_bot_token = True
+            elif line.startswith('TG_CHAT_ID='):
+                env_lines[i] = f'TG_CHAT_ID={chat_id}\n'
+                updated_chat_id = True
+        
+        # Add if not found
+        if not updated_bot_token:
+            env_lines.append(f'TG_BOT_TOKEN={bot_token}\n')
+        if not updated_chat_id:
+            env_lines.append(f'TG_CHAT_ID={chat_id}\n')
+        
+        # Write back to .env
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(env_lines)
+        
+        # Reload environment variables
+        load_dotenv(override=True)
+        
+        return jsonify({'status': 'success', 'message': 'Настройки Telegram сохранены в .env'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/telegram/test', methods=['POST'])
+@login_required
+@permission_required('can_view_settings')
+def test_telegram_connection():
+    """Test Telegram bot connection and send test message"""
+    try:
+        import requests
+        
+        data = request.json
+        bot_token = data.get('bot_token', '').strip()
+        chat_id = data.get('chat_id', '').strip()
+        
+        if not bot_token or not chat_id:
+            return jsonify({'status': 'error', 'message': 'Bot Token и Chat ID обязательны'}), 400
+        
+        # Test 1: Check bot
+        bot_url = f'https://api.telegram.org/bot{bot_token}/getMe'
+        bot_response = requests.get(bot_url, timeout=10)
+        
+        if bot_response.status_code != 200:
+            return jsonify({'status': 'error', 'message': f'Ошибка бота: HTTP {bot_response.status_code}'}), 400
+        
+        bot_result = bot_response.json()
+        if not bot_result.get('ok'):
+            return jsonify({'status': 'error', 'message': f'Неверный Bot Token: {bot_result.get("description", "Unknown error")}'}), 400
+        
+        bot_info = bot_result.get('result', {})
+        
+        # Test 2: Check chat access
+        chat_url = f'https://api.telegram.org/bot{bot_token}/getChat'
+        chat_response = requests.get(chat_url, params={'chat_id': chat_id}, timeout=10)
+        
+        chat_info = None
+        if chat_response.status_code == 200:
+            chat_result = chat_response.json()
+            if chat_result.get('ok'):
+                chat_info = chat_result.get('result', {})
+        
+        # Test 3: Send test message
+        send_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        send_data = {
+            'chat_id': chat_id,
+            'text': '🧪 Тестовое сообщение от парсера\n\n✅ Подключение к Telegram работает корректно!'
+        }
+        send_response = requests.post(send_url, data=send_data, timeout=10)
+        
+        if send_response.status_code != 200:
+            return jsonify({
+                'status': 'error',
+                'message': f'Не удалось отправить сообщение: {send_response.text}'
+            }), 400
+        
+        send_result = send_response.json()
+        if not send_result.get('ok'):
+            return jsonify({
+                'status': 'error',
+                'message': f'Ошибка отправки: {send_result.get("description", "Unknown error")}'
+            }), 400
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Подключение успешно, тестовое сообщение отправлено',
+            'bot_info': {
+                'name': bot_info.get('first_name', ''),
+                'username': bot_info.get('username', ''),
+                'id': bot_info.get('id', '')
+            },
+            'chat_info': {
+                'title': chat_info.get('title', chat_info.get('first_name', 'Personal Chat')) if chat_info else 'Unknown',
+                'id': chat_info.get('id', chat_id) if chat_info else chat_id
+            } if chat_info else None
+        })
+        
+    except requests.exceptions.Timeout:
+        return jsonify({'status': 'error', 'message': 'Превышено время ожидания ответа от Telegram'}), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify({'status': 'error', 'message': f'Ошибка сети: {str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/dashboard/stats', methods=['GET'])
 @login_required  
 def dashboard_stats():
     platform = request.args.get('platform', 'ozon')
     try:
-        print("[DEBUG] Connecting to database...")
         conn = psycopg2.connect(
             dbname=os.getenv('DB_NAME'),
             user=os.getenv('DB_USER'),
@@ -220,35 +428,36 @@ def dashboard_stats():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
+        table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
         
         print("[DEBUG] Querying total products...")
         # Total products (unique SKUs)
-        cur.execute("SELECT COUNT(DISTINCT sku) FROM prices WHERE platform = %s", (platform,))
+        cur.execute(f"SELECT COUNT(DISTINCT sku) FROM {table}")
         total_products = cur.fetchone()[0]
         
         print("[DEBUG] Querying products with prices...")
         # Products with prices - clean price_card and convert to numeric
-        cur.execute("""
-            SELECT COUNT(DISTINCT sku) FROM prices 
-            WHERE platform = %s AND price_card IS NOT NULL 
+        cur.execute(f"""
+            SELECT COUNT(DISTINCT sku) FROM {table}
+            WHERE price_card IS NOT NULL 
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
-        """, (platform,))
+        """)
         products_with_prices = cur.fetchone()[0]
         
         print("[DEBUG] Querying average price...")
         # Average price - clean and convert
-        cur.execute("""
+        cur.execute(f"""
             SELECT AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) 
-            FROM prices 
-            WHERE platform = %s AND price_card IS NOT NULL 
+            FROM {table}
+            WHERE price_card IS NOT NULL 
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
-        """, (platform,))
+        """)
         avg_price = cur.fetchone()[0] or 0
         
         print("[DEBUG] Querying total stores...")
         # Total stores
-        cur.execute("SELECT COUNT(DISTINCT competitor_name) FROM prices WHERE platform = %s AND competitor_name IS NOT NULL", (platform,))
+        cur.execute(f"SELECT COUNT(DISTINCT competitor_name) FROM {table} WHERE competitor_name IS NOT NULL")
         total_stores = cur.fetchone()[0]
         
         cur.close()
@@ -280,21 +489,22 @@ def dashboard_chart():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
+        table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
         
         # Get average price by competitor
-        cur.execute("""
+        cur.execute(f"""
             SELECT 
                 competitor_name,
                 AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) as avg_price
-            FROM prices 
-            WHERE platform = %s AND competitor_name IS NOT NULL 
+            FROM {table} 
+            WHERE competitor_name IS NOT NULL 
             AND price_card IS NOT NULL
             AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
             GROUP BY competitor_name
             ORDER BY avg_price DESC
             LIMIT 10
-        """, (platform,))
+        """)
         
         results = cur.fetchall()
         cur.close()

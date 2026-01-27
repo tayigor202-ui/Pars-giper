@@ -96,6 +96,66 @@
 </div>
 
 <div class="row mt-4">
+    <div class="col-md-12">
+        <div class="main-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-telegram"></i> Настройки Telegram</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label"><i class="bi bi-robot"></i> Bot Token</label>
+                            <input type="password" class="form-control" id="telegram-bot-token"
+                                placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz">
+                            <small class="text-white-50 d-block mt-1">Токен бота из @BotFather</small>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label"><i class="bi bi-chat-dots"></i> Chat ID</label>
+                            <input type="text" class="form-control" id="telegram-chat-id"
+                                placeholder="-1001234567890 или 123456789">
+                            <small class="text-white-50 d-block mt-1">ID чата для отправки отчётов (получите через
+                                @userinfobot)</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <button class="btn btn-premium w-100 mb-3" id="save-telegram-settings-btn">
+                            <i class="bi bi-save"></i> Сохранить настройки Telegram
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-light w-100 mb-3" id="test-telegram-btn">
+                            <i class="bi bi-send-check"></i> Проверить подключение
+                        </button>
+                    </div>
+                </div>
+
+                <div id="telegram-status" class="mt-3"></div>
+
+                <hr style="border-color: rgba(255,255,255,0.2);">
+
+                <div class="alert alert-info"
+                    style="background: rgba(13, 110, 253, 0.1); border-color: rgba(13, 110, 253, 0.3);">
+                    <h6><i class="bi bi-info-circle"></i> Как настроить Telegram:</h6>
+                    <ol class="mb-0" style="font-size: 0.9rem;">
+                        <li>Создайте бота через @BotFather и получите Bot Token</li>
+                        <li>Добавьте бота в ваш чат или группу</li>
+                        <li>Получите Chat ID через @userinfobot (для личного чата) или @getmyid_bot (для группы)</li>
+                        <li>Введите Bot Token и Chat ID выше и нажмите "Сохранить"</li>
+                        <li>Нажмите "Проверить подключение" для тестирования</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
     <div class="col-12">
         <div class="main-card">
             <div class="card-header">
@@ -318,6 +378,34 @@
             });
     });
 
+    // Load all config from server
+    function loadConfig() {
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(data => {
+                if (data.ozon_spreadsheet_url) {
+                    document.getElementById('google-sheet-url').value = data.ozon_spreadsheet_url;
+                }
+                if (data.wb_spreadsheet_url) {
+                    document.getElementById('google-sheet-url-wb').value = data.wb_spreadsheet_url;
+                }
+            })
+            .catch(err => console.error('Error loading config:', err));
+
+        // Load Telegram settings separately
+        fetch('/api/telegram/settings')
+            .then(r => r.json())
+            .then(data => {
+                if (data.bot_token) {
+                    document.getElementById('telegram-bot-token').value = data.bot_token;
+                }
+                if (data.chat_id) {
+                    document.getElementById('telegram-chat-id').value = data.chat_id;
+                }
+            })
+            .catch(err => console.error('Error loading Telegram settings:', err));
+    }
+
     // Google Sheets URL (OZON)
     document.getElementById('save-sheet-url-btn').addEventListener('click', function () {
         const url = document.getElementById('google-sheet-url').value.trim();
@@ -329,13 +417,27 @@
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
 
-        localStorage.setItem('google_sheet_url', url);
-
-        setTimeout(() => {
-            document.getElementById('db-status').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL Ozon сохранён</div>';
-            this.disabled = false;
-            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку OZON';
-        }, 500);
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ozon_spreadsheet_url: url })
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('db-status');
+                if (data.status === 'success') {
+                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL Ozon сохранён на сервере</div>';
+                } else {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                }
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку OZON';
+            })
+            .catch(err => {
+                document.getElementById('db-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку OZON';
+            });
     });
 
     // Google Sheets URL (WB)
@@ -349,28 +451,32 @@
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
 
-        localStorage.setItem('google_sheet_url_wb', url);
-
-        setTimeout(() => {
-            document.getElementById('db-status-wb').innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL WB сохранён</div>';
-            this.disabled = false;
-            this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку WB';
-        }, 500);
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wb_spreadsheet_url: url })
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('db-status-wb');
+                if (data.status === 'success') {
+                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> URL WB сохранён на сервере</div>';
+                } else {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                }
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку WB';
+            })
+            .catch(err => {
+                document.getElementById('db-status-wb').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить ссылку WB';
+            });
     });
 
-    // Load saved URLs
-    const savedUrl = localStorage.getItem('google_sheet_url');
-    if (savedUrl) {
-        document.getElementById('google-sheet-url').value = savedUrl;
-    }
     // Database update (OZON)
     document.getElementById('update-db-btn').addEventListener('click', function () {
         const url = document.getElementById('google-sheet-url').value.trim();
-        if (!url) {
-            alert('Сначала укажите и сохраните URL Google Sheets для Ozon');
-            return;
-        }
-
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт OZON...';
 
@@ -397,11 +503,6 @@
     // Database update (WB)
     document.getElementById('update-db-wb-btn').addEventListener('click', function () {
         const url = document.getElementById('google-sheet-url-wb').value.trim();
-        if (!url) {
-            alert('Сначала укажите и сохраните URL Google Sheets для WB');
-            return;
-        }
-
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Импорт WB...';
 
@@ -425,7 +526,87 @@
             });
     });
 
-    // Load schedules on page load
+    // Telegram Settings - Save
+    document.getElementById('save-telegram-settings-btn').addEventListener('click', function () {
+        const botToken = document.getElementById('telegram-bot-token').value.trim();
+        const chatId = document.getElementById('telegram-chat-id').value.trim();
+
+        if (!botToken || !chatId) {
+            document.getElementById('telegram-status').innerHTML =
+                '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Заполните оба поля: Bot Token и Chat ID</div>';
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+
+        fetch('/api/telegram/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bot_token: botToken, chat_id: chatId })
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('telegram-status');
+                const alertClass = data.status === 'success' ? 'alert' : 'alert alert-danger';
+                statusDiv.innerHTML = '<div class="' + alertClass + '"><i class="bi bi-' + (data.status === 'success' ? 'check' : 'x') + '-circle"></i> ' + data.message + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить настройки Telegram';
+            })
+            .catch(err => {
+                document.getElementById('telegram-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-save"></i> Сохранить настройки Telegram';
+            });
+    });
+
+    // Telegram Settings - Test Connection
+    document.getElementById('test-telegram-btn').addEventListener('click', function () {
+        const botToken = document.getElementById('telegram-bot-token').value.trim();
+        const chatId = document.getElementById('telegram-chat-id').value.trim();
+
+        if (!botToken || !chatId) {
+            document.getElementById('telegram-status').innerHTML =
+                '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Сначала сохраните настройки Telegram</div>';
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Проверка...';
+
+        fetch('/api/telegram/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bot_token: botToken, chat_id: chatId })
+        })
+            .then(r => r.json())
+            .then(data => {
+                const statusDiv = document.getElementById('telegram-status');
+                if (data.status === 'success') {
+                    let html = '<div class="alert"><i class="bi bi-check-circle"></i> <strong>Подключение успешно!</strong><br>';
+                    if (data.bot_info) {
+                        html += '<small>Бот: ' + data.bot_info.name + ' (@' + data.bot_info.username + ')</small><br>';
+                    }
+                    if (data.chat_info) {
+                        html += '<small>Чат: ' + data.chat_info.title + ' (ID: ' + data.chat_info.id + ')</small><br>';
+                    }
+                    html += '<small>✅ Тестовое сообщение отправлено в Telegram</small></div>';
+                    statusDiv.innerHTML = html;
+                } else {
+                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> <strong>Ошибка подключения</strong><br><small>' + data.message + '</small></div>';
+                }
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-send-check"></i> Проверить подключение';
+            })
+            .catch(err => {
+                document.getElementById('telegram-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-send-check"></i> Проверить подключение';
+            });
+    });
+
+    // Load data on page load
     loadSchedules();
+    loadConfig();
 </script>
 {% endblock %}
