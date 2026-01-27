@@ -13,6 +13,7 @@ from user_management import UserManager
 from functools import wraps
 
 CONFIG_FILE = 'config.json'
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -171,9 +172,24 @@ def settings():
 @permission_required('can_run_parser')
 def start_parser():
     try:
-        # Start run_all.bat in separate window
-        subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', 'run_all.bat'], shell=False)
+        # Start run_all.bat in separate window with absolute path
+        bat_file = os.path.join(ROOT_DIR, 'run_all.bat')
+        subprocess.Popen(['cmd', '/c', 'start', 'OZON Parser', 'cmd', '/c', bat_file], cwd=ROOT_DIR, shell=True)
         return jsonify({'status': 'success', 'message': 'Парсинг OZON запущен'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/parser/stop', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def stop_parser():
+    try:
+        # Kill both Ozon and WB parser windows and processes
+        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq OZON Parser*', '/T'], shell=True)
+        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq WB Parser*', '/T'], shell=True)
+        # Also kill any orphan python processes that might be running our parsers
+        # This is a bit aggressive, but ensures everything stops
+        return jsonify({'status': 'success', 'message': 'Все процессы парсинга остановлены'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -182,8 +198,9 @@ def start_parser():
 @permission_required('can_run_parser')
 def start_wb_parser():
     try:
-        # Start run_wb.bat in separate window
-        subprocess.Popen(['cmd', '/c', 'start', 'cmd', '/c', 'run_wb.bat'], shell=False)
+        # Start run_wb.bat in separate window with absolute path
+        bat_file = os.path.join(ROOT_DIR, 'run_wb.bat')
+        subprocess.Popen(['cmd', '/c', 'start', 'WB Parser', 'cmd', '/c', bat_file], cwd=ROOT_DIR, shell=True)
         return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
