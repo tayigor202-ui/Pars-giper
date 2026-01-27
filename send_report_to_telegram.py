@@ -31,18 +31,27 @@ def send_to_telegram(filename):
             
             print(f"[TG] Sending to Telegram (chat_id: {TG_CHAT_ID})...")
             response = requests.post(url, files=files, data=data, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('ok'):
-                    print("[TG] ✅ Report sent successfully")
-                    return True
-                else:
-                    print(f"[TG] ❌ Error: {result}")
-                    return False
+        
+        # Проверка результата и удаление файла (после закрытия файла)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('ok'):
+                print("[TG] ✅ Report sent successfully")
+                
+                # Удаляем файл после успешной отправки
+                try:
+                    os.remove(filename)
+                    print(f"[TG] 🗑️  File {filename} deleted")
+                except Exception as e:
+                    print(f"[TG] ⚠️  Could not delete file: {e}")
+                
+                return True
             else:
-                print(f"[TG] ❌ HTTP Error {response.status_code}: {response.text}")
+                print(f"[TG] ❌ Error: {result}")
                 return False
+        else:
+            print(f"[TG] ❌ HTTP Error {response.status_code}: {response.text}")
+            return False
                 
     except FileNotFoundError:
         print(f"[TELEGRAM] ❌ Файл {filename} не найден")

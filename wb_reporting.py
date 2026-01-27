@@ -123,10 +123,19 @@ def send_wb_report(filename):
             files = {'document': f}
             data = {'chat_id': TG_CHAT_ID, 'caption': f'🟣 Отчёт по ценам Wildberries\n\n✅ Файл: {filename}'}
             resp = requests.post(url, files=files, data=data, timeout=30)
-            if resp.status_code == 200 and resp.json().get('ok'):
-                print("[TG] ✅ Report sent successfully")
-            else:
-                print(f"[TG] ❌ Failed: {resp.text}")
+        
+        # Проверка результата и удаление файла (после закрытия файла)
+        if resp.status_code == 200 and resp.json().get('ok'):
+            print("[TG] ✅ Report sent successfully")
+            
+            # Удаляем файл после успешной отправки
+            try:
+                os.remove(filename)
+                print(f"[TG] 🗑️  File {filename} deleted")
+            except Exception as e:
+                print(f"[TG] ⚠️  Could not delete file: {e}")
+        else:
+            print(f"[TG] ❌ Failed: {resp.text}")
     except Exception as e:
         print(f"[TG] ❌ Error: {e}")
 
