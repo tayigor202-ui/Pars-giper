@@ -3,10 +3,10 @@
 {% block title %}Управление парсером - OZON Parser{% endblock %}
 
 {% block content %}
-<div class="row mb-4 reveal">
+<div class="row mb-5 reveal">
     <div class="col-12">
-        <h1 class="page-title"><i class="bi bi-cpu text-neon-cyan"></i> Центр управления</h1>
-        <p class="page-subtitle">Запуск и мониторинг высокоскоростных потоков парсинга</p>
+        <h1 class="page-title"><i class="bi bi-terminal neon-glow-cyan"></i> Оперативный Штаб</h1>
+        <p class="page-subtitle">Централизованное управление нейронными потоками сбора данных</p>
     </div>
 </div>
 
@@ -14,43 +14,45 @@
     <div class="col-md-12">
         <div class="main-card reveal" style="animation-delay: 0.1s">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h4 class="mb-0 fw-bold"><i class="bi bi-terminal text-neon-cyan"></i> Консоль оператора</h4>
-                <div class="text-neon-cyan small"><i class="bi bi-broadcast"></i> SYSTEM READY</div>
+                <h4 class="mb-0 fw-bold"><i class="bi bi-command neon-glow-cyan"></i> Главная Консоль</h4>
+                <div class="text-neon-cyan small fw-bold" style="letter-spacing: 2px;"><i
+                        class="bi bi-record-circle-fill"></i> SYSTEM ACTIVE</div>
             </div>
             <div class="card-body">
-                <div class="row g-4 mb-5">
+                <div class="row g-5 mb-5">
                     <div class="col-md-4">
                         <button id="start-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);">
-                            <i class="bi bi-play-circle-fill me-2"></i> Запустить OZON
+                            style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">
+                            <i class="bi bi-play-circle-fill me-2"></i> ЗАПУСК OZON
                         </button>
                     </div>
                     <div class="col-md-4">
                         <button id="start-wb-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #9c27b0 0%, #673ab7 100%);">
-                            <i class="bi bi-play-circle-fill me-2"></i> Запустить WB
+                            style="background: linear-gradient(135deg, #7000ff 0%, #a066ff 100%);">
+                            <i class="bi bi-play-circle-fill me-2"></i> ЗАПУСК WB
                         </button>
                     </div>
                     <div class="col-md-4">
                         <button id="stop-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #cb2d3e 0%, #ef473a 100%);">
-                            <i class="bi bi-stop-circle-fill me-2"></i> Принудительная остановка
+                            style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <i class="bi bi-stop-circle-fill me-2"></i> СТОП-СИГНАЛ
                         </button>
                     </div>
                 </div>
 
                 <div id="status-message" class="reveal" style="animation-delay: 0.3s">
-                    <!-- Status messages will appear here -->
+                    <!-- High-tech status report will flow here -->
                 </div>
 
-                <div class="mt-4 p-4 rounded-4 reveal"
-                    style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-glass); animation-delay: 0.4s">
-                    <div class="d-flex align-items-center mb-3 text-secondary small text-uppercase fw-bold"
-                        style="letter-spacing:1px">
-                        <i class="bi bi-info-square me-2"></i> Лог операций
+                <div class="mt-5 p-5 rounded-4 reveal"
+                    style="background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); animation-delay: 0.4s">
+                    <div class="d-flex align-items-center mb-4 text-secondary small text-uppercase fw-bold"
+                        style="letter-spacing:3px">
+                        <i class="bi bi-hash me-2 neon-glow-cyan"></i> Поток системного лога
                     </div>
                     <div id="mini-log" class="font-monospace small"
-                        style="color: rgba(255,255,255,0.6); max-height: 150px; overflow-y: auto;">
+                        style="color: rgba(0, 210, 255, 0.7); max-height: 200px; overflow-y: auto; line-height: 1.8;">
+                        > Инициализация интерфейса оператора... Готово.<br>
                         > Ожидание команды пользователя...
                     </div>
                 </div>

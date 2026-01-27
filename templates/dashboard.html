@@ -23,29 +23,29 @@
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">Всего товаров</div>
-            <div class="stat-value text-neon-cyan" id="total-products">—</div>
-            <i class="bi bi-box-seam stat-icon"></i>
+            <div class="stat-value neon-glow-cyan" id="total-products">—</div>
+            <i class="bi bi-cpu stat-icon neon-glow-cyan"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">С ценами</div>
-            <div class="stat-value text-neon-cyan" id="products-with-prices">—</div>
-            <i class="bi bi-check-circle stat-icon"></i>
+            <div class="stat-value neon-glow-cyan" id="products-with-prices">—</div>
+            <i class="bi bi-shield-check stat-icon neon-glow-cyan"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
             <div class="stat-label">Средняя цена</div>
-            <div class="stat-value text-neon-gold" id="avg-price">—</div>
-            <i class="bi bi-currency-dollar stat-icon"></i>
+            <div class="stat-value neon-glow-purple" id="avg-price">—</div>
+            <i class="bi bi-lightning-charge stat-icon neon-glow-purple"></i>
         </div>
     </div>
     <div class="col-md-6 col-lg-3">
         <div class="stat-card">
-            <div class="stat-label">Магазинов</div>
-            <div class="stat-value text-neon-cyan" id="total-stores">—</div>
-            <i class="bi bi-shop stat-icon"></i>
+            <div class="stat-label">Источники</div>
+            <div class="stat-value neon-glow-cyan" id="total-stores">—</div>
+            <i class="bi bi-database-check stat-icon neon-glow-cyan"></i>
         </div>
     </div>
 </div>
@@ -54,9 +54,9 @@
     <div class="col-12">
         <div class="main-card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h4 class="mb-0 fw-bold"><i class="bi bi-graph-up text-neon-cyan"></i> Тренд цен по конкурентам</h4>
-                <div class="badge bg-info-subtle text-info border border-info-subtle px-3 py-2 rounded-pill">Live Update
-                </div>
+                <h4 class="mb-0 fw-bold"><i class="bi bi-activity neon-glow-cyan"></i> Аналитическая разведка цен</h4>
+                <div class="badge bg-primary-subtle text-primary border border-primary-subtle px-4 py-2 rounded-pill">
+                    DATA SYNCHRONIZED</div>
             </div>
             <div class="card-body">
                 <canvas id="priceChart" style="height: 450px;"></canvas>
@@ -100,16 +100,17 @@
                     const { ctx, chartArea } = chart;
                     if (!chartArea) return null;
                     const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-                    gradient.addColorStop(0, 'rgba(0, 210, 255, 0.2)');
-                    gradient.addColorStop(1, 'rgba(0, 210, 255, 0.8)');
+                    gradient.addColorStop(0, 'rgba(112, 0, 255, 0.1)');
+                    gradient.addColorStop(0.5, 'rgba(0, 210, 255, 0.4)');
+                    gradient.addColorStop(1, 'rgba(0, 210, 255, 0.9)');
                     return gradient;
                 },
                 borderColor: '#00d2ff',
-                borderWidth: 2,
-                borderRadius: 12,
+                borderWidth: 1,
+                borderRadius: 20,
                 hoverBackgroundColor: 'rgba(0, 210, 255, 1)',
                 hoverBorderColor: '#fff',
-                hoverBorderWidth: 3
+                hoverBorderWidth: 2
             }]
         },
         options: {
