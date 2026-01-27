@@ -27,7 +27,7 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg-dark) url('/static/img/ui_background_ultra.png') no-repeat center center fixed;
+            background: var(--bg-dark) url('/static/img/ui_background_ultra.png?v=ultra_premium') no-repeat center center fixed;
             background-size: cover;
             min-height: 100vh;
             color: var(--text-main);
@@ -300,10 +300,16 @@
     {% endif %}
 
     <div class="container-fluid {% if current_user.is_authenticated %}mt-4{% endif %}">
-        {% with messages = get_flashed_messages(with_categories=true) %}\n {% if messages %}\n {% for category, message
-        in messages %}\n <div class="alert alert-dismissible fade show" role="alert">\n {{ message }}\n <button
-                type="button" class="btn-close" data-bs-dismiss="alert"></button>\n </div>\n {% endfor %}\n {% endif
-        %}\n {% endwith %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
 
         {% block content %}{% endblock %}
     </div>
