@@ -1,65 +1,137 @@
 {% extends "base.html" %}
 
-{% block title %}Дашборд - OZON Parser{% endblock %}
+{% block title %}Дашборд - Analytics{% endblock %}
 
 {% block content %}
-<div class="row mb-4 reveal">
-    <div class="col-md-8">
-        <h1 class="page-title"><i class="bi bi-speedometer2 text-neon-cyan"></i> Дашборд мониторинга</h1>
-        <p class="page-subtitle">Реал-тайм обзор состояния парсинга и цен</p>
+<div class="row align-items-end mb-4">
+    <div class="col-lg-8">
+        <h1 class="page-title">Дашборд</h1>
+        <p class="page-subtitle">Обзор производительности и детальная аналитика.</p>
     </div>
-    <div class="col-md-4 text-end">
-        <div class="btn-group reveal" style="animation-delay:0.1s" role="group">
-            <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" autocomplete="off" checked>
-            <label class="btn btn-outline-info px-4 border-2" for="ozon-btn">OZON</label>
+    <div class="col-lg-4 text-lg-end mb-3">
+        <div class="btn-group p-1" style="background: rgba(255,255,255,0.05); border-radius: 14px;">
+            <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" checked>
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="ozon-btn">Ozon</label>
 
-            <input type="radio" class="btn-check" name="platform-toggle" id="wb-btn" autocomplete="off">
-            <label class="btn btn-outline-info px-4 border-2" for="wb-btn">Wildberries</label>
+            <input type="radio" class="btn-check" name="platform-toggle" id="wb-btn">
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="wb-btn">WB</label>
         </div>
     </div>
 </div>
 
-<div class="row g-4 mb-5 reveal" style="animation-delay:0.2s">
-    <div class="col-md-6 col-lg-3">
+<!-- Stats row -->
+<div class="row g-4 mb-5">
+    <div class="col-md-3">
         <div class="stat-card">
-            <div class="stat-label">Всего товаров</div>
-            <div class="stat-value neon-glow-cyan" id="total-products">—</div>
-            <i class="bi bi-cpu stat-icon neon-glow-cyan"></i>
+            <div class="stat-label">Товары</div>
+            <div class="stat-value" id="total-products">0</div>
         </div>
     </div>
-    <div class="col-md-6 col-lg-3">
+    <div class="col-md-3">
         <div class="stat-card">
             <div class="stat-label">С ценами</div>
-            <div class="stat-value neon-glow-cyan" id="products-with-prices">—</div>
-            <i class="bi bi-shield-check stat-icon neon-glow-cyan"></i>
+            <div class="stat-value" id="products-with-prices">0</div>
         </div>
     </div>
-    <div class="col-md-6 col-lg-3">
-        <div class="stat-card">
+    <div class="col-md-3">
+        <div class="stat-card" style="border-left: 2px solid var(--brand-secondary);">
             <div class="stat-label">Средняя цена</div>
-            <div class="stat-value neon-glow-purple" id="avg-price">—</div>
-            <i class="bi bi-lightning-charge stat-icon neon-glow-purple"></i>
+            <div class="stat-value" id="avg-price">0 ₽</div>
         </div>
     </div>
-    <div class="col-md-6 col-lg-3">
+    <div class="col-md-3">
         <div class="stat-card">
-            <div class="stat-label">Источники</div>
-            <div class="stat-value neon-glow-cyan" id="total-stores">—</div>
-            <i class="bi bi-database-check stat-icon neon-glow-cyan"></i>
+            <div class="stat-label">Магазины</div>
+            <div class="stat-value" id="total-stores">0</div>
         </div>
     </div>
 </div>
 
-<div class="row reveal" style="animation-delay:0.3s">
+<!-- Chart row -->
+<div class="row mb-5">
     <div class="col-12">
         <div class="main-card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h4 class="mb-0 fw-bold"><i class="bi bi-activity neon-glow-cyan"></i> Аналитическая разведка цен</h4>
-                <div class="badge bg-primary-subtle text-primary border border-primary-subtle px-4 py-2 rounded-pill">
-                    DATA SYNCHRONIZED</div>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="h5 mb-0 fw-bold">ТОП Магазинов по средней цене</h3>
+                <span class="badge bg-white bg-opacity-10 text-white-50 px-3 py-2 rounded-pill">Real-time</span>
             </div>
-            <div class="card-body">
-                <canvas id="priceChart" style="height: 450px;"></canvas>
+            <div style="height: 300px; position: relative;">
+                <canvas id="priceChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters and Table container -->
+<div class="row">
+    <div class="col-12">
+        <div class="main-card">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+                <h3 class="h5 mb-0 fw-bold">Товары и цены</h3>
+                <button id="export-excel-btn" class="btn btn-action btn-sm px-4">
+                    <i class="bi bi-file-earmark-excel me-2"></i> Экспорт в Excel
+                </button>
+            </div>
+
+            <!-- Filter Panel -->
+            <div class="row g-3 mb-4 p-3 rounded-4" style="background: rgba(0,0,0,0.2);">
+                <div class="col-md-4">
+                    <label class="form-label small text-secondary fw-bold">ПОИСК</label>
+                    <input type="text" id="filter-search" class="form-control form-control-sm"
+                        placeholder="Наименование или SKU...">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-secondary fw-bold">МАГАЗИН</label>
+                    <select id="filter-store" class="form-select form-select-sm">
+                        <option value="">Все магазины</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-secondary fw-bold">ДИАПАЗОН ЦЕН</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" id="filter-min-price" class="form-control" placeholder="От">
+                        <input type="number" id="filter-max-price" class="form-control" placeholder="До">
+                    </div>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button id="apply-filters-btn" class="btn btn-action btn-sm w-100 py-2">
+                        <i class="bi bi-filter"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="table-responsive">
+                <table class="table text-white border-0">
+                    <thead>
+                        <tr id="table-headers">
+                            <th>SKU</th>
+                            <th>Название</th>
+                            <th>Продавец</th>
+                            <th id="col-promo">Цена с картой</th>
+                            <th id="col-price">Цена без карты</th>
+                            <th id="col-old">Старая цена</th>
+                            <th>Обновлено</th>
+                        </tr>
+                    </thead>
+                    <tbody id="products-table-body">
+                        <!-- Data rows here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="d-flex justify-content-between align-items-center mt-4">
+                <div class="text-secondary small">Страница <span id="current-page-num">1</span> из <span
+                        id="total-pages-num">1</span></div>
+                <div class="btn-group">
+                    <button id="prev-page-btn"
+                        class="btn btn-outline-light btn-sm px-3 rounded-start-pill border-opacity-25"
+                        disabled>Назад</button>
+                    <button id="next-page-btn"
+                        class="btn btn-outline-light btn-sm px-3 rounded-end-pill border-opacity-25"
+                        disabled>Вперед</button>
+                </div>
             </div>
         </div>
     </div>
@@ -70,117 +142,220 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
     let currentPlatform = 'ozon';
+    let currentPage = 1;
+    const brandColor = '#6366f1';
 
-    // Load dashboard stats
+    function updateHeaders() {
+        if (currentPlatform === 'wb') {
+            document.getElementById('col-promo').innerText = 'Промо';
+            document.getElementById('col-price').innerText = 'Цена';
+            document.getElementById('col-old').innerText = 'Старая';
+        } else {
+            document.getElementById('col-promo').innerText = 'Цена с картой';
+            document.getElementById('col-price').innerText = 'Цена без карты';
+            document.getElementById('col-old').innerText = 'Старая цена';
+        }
+    }
+
+    function updateHeaders() {
+        if (currentPlatform === 'wb') {
+            document.getElementById('col-promo').innerText = 'Промо';
+            document.getElementById('col-price').innerText = 'Цена';
+            document.getElementById('col-old').innerText = 'Старая';
+        } else {
+            document.getElementById('col-promo').innerText = 'Цена с картой';
+            document.getElementById('col-price').innerText = 'Цена без карты';
+            document.getElementById('col-old').innerText = 'Старая цена';
+        }
+    }
+
+    // Core Stats
     function loadStats() {
         fetch(`/api/dashboard/stats?platform=${currentPlatform}`)
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                document.getElementById('total-products').textContent = data.total_products || 0;
-                document.getElementById('products-with-prices').textContent = data.products_with_prices || 0;
-                document.getElementById('avg-price').textContent = data.avg_price ? Math.round(data.avg_price) + ' ₽' : '0 ₽';
-                document.getElementById('total-stores').textContent = data.total_stores || 0;
-            })
-            .catch(error => {
-                console.error('Error loading stats:', error);
+                document.getElementById('total-products').innerText = data.total_products || 0;
+                document.getElementById('products-with-prices').innerText = data.products_with_prices || 0;
+                document.getElementById('avg-price').innerText = (data.avg_price ? Math.round(data.avg_price).toLocaleString('ru-RU') : 0) + ' ₽';
+                document.getElementById('total-stores').innerText = data.total_stores || 0;
             });
     }
 
-    // Initialize chart
+    // Chart
     const ctx = document.getElementById('priceChart');
     const chart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['Загрузка...'],
+            labels: ['...'],
             datasets: [{
-                label: 'Средняя цена (₽)',
+                label: 'Средняя цена',
                 data: [0],
-                backgroundColor: (context) => {
-                    const chart = context.chart;
-                    const { ctx, chartArea } = chart;
-                    if (!chartArea) return null;
-                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-                    gradient.addColorStop(0, 'rgba(112, 0, 255, 0.1)');
-                    gradient.addColorStop(0.5, 'rgba(0, 210, 255, 0.4)');
-                    gradient.addColorStop(1, 'rgba(0, 210, 255, 0.9)');
-                    return gradient;
-                },
-                borderColor: '#00d2ff',
-                borderWidth: 1,
-                borderRadius: 20,
-                hoverBackgroundColor: 'rgba(0, 210, 255, 1)',
-                hoverBorderColor: '#fff',
-                hoverBorderWidth: 2
+                backgroundColor: brandColor,
+                borderRadius: 8,
+                barThickness: 20,
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(10, 10, 12, 0.9)',
-                    titleFont: { size: 16, weight: 'bold' },
-                    bodyFont: { size: 14 },
-                    padding: 15,
-                    cornerRadius: 12,
-                    displayColors: false
-                }
-            },
+            plugins: { legend: { display: false } },
             scales: {
                 y: {
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    ticks: { color: '#64748b' },
                     beginAtZero: true,
-                    ticks: { color: 'rgba(255,255,255,0.6)', font: { family: 'Inter' }, callback: value => value + ' ₽' },
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                    grace: '10%' // Add padding at the top of the chart
                 },
-                x: {
-                    ticks: { color: 'rgba(255,255,255,0.6)', font: { family: 'Inter' } },
-                    grid: { display: false }
-                }
+                x: { grid: { display: false }, ticks: { color: '#64748b' } }
             }
         }
     });
 
-    // Load chart data
     function loadChart() {
         fetch(`/api/dashboard/chart?platform=${currentPlatform}`)
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
-                if (data.labels && data.labels.length > 0) {
-                    chart.data.labels = data.labels;
-                    chart.data.datasets[0].data = data.data;
-                } else {
-                    chart.data.labels = ['Нет данных'];
-                    chart.data.datasets[0].data = [0];
-                }
+                chart.data.labels = data.labels;
+                chart.data.datasets[0].data = data.data;
                 chart.update();
-            })
-            .catch(error => console.error('Error loading chart:', error));
+            });
     }
 
-    // Platform toggle listeners
-    document.getElementById('ozon-btn').addEventListener('change', function () {
-        if (this.checked) {
-            currentPlatform = 'ozon';
-            loadStats();
-            loadChart();
-        }
+    // Table and Filters
+    function loadTable() {
+        updateHeaders();
+        const search = document.getElementById('filter-search').value;
+        const store = document.getElementById('filter-store').value;
+        const minPrice = document.getElementById('filter-min-price').value;
+        const maxPrice = document.getElementById('filter-max-price').value;
+
+        const url = `/api/dashboard/table?platform=${currentPlatform}&page=${currentPage}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${minPrice}&max_price=${maxPrice}`;
+
+        const tbody = document.getElementById('products-table-body');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-secondary"><div class="spinner-border spinner-border-sm me-2"></div> Загрузка...</td></tr>';
+
+        fetch(url)
+            .then(r => r.json())
+            .then(data => {
+                console.log("Dashboard data:", data);
+                if (data.error) {
+                    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">Ошибка API: ${data.error}</td></tr>`;
+                    return;
+                }
+
+                const storeSelect = document.getElementById('filter-store');
+                if (data.stores) {
+                    const currentStore = storeSelect.value;
+                    storeSelect.innerHTML = '<option value="">Все магазины</option>';
+                    data.stores.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s || '';
+                        opt.innerText = s || '---';
+                        storeSelect.appendChild(opt);
+                    });
+                    storeSelect.value = currentStore;
+                }
+
+                tbody.innerHTML = '';
+                if (!data.items || data.items.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-secondary">Данные не найдены</td></tr>';
+                } else {
+                    data.items.forEach((item, index) => {
+                        try {
+                            const sku = item.sku || '---';
+                            const name = item.name || '---';
+                            const seller = item.seller || '---';
+                            const promo = item.promo || '---';
+                            const price = item.price || '---';
+                            const old = item.old || '';
+                            const updated = item.updated || '---';
+
+                            const isSpecial = String(price).length > 10;
+
+                            tbody.innerHTML += `
+                                <tr>
+                                    <td class="small opacity-75">${sku}</td>
+                                    <td class="fw-medium">${name}</td>
+                                    <td><span class="badge bg-white bg-opacity-5 text-secondary border border-secondary border-opacity-25 px-2">${seller}</span></td>
+                                    <td class="fw-bold ${isSpecial ? 'text-warning' : 'text-info'}">${promo}</td>
+                                    <td class="fw-bold ${isSpecial ? 'text-warning' : 'text-white'}">${price}</td>
+                                    <td class="text-secondary text-decoration-line-through small">${old}</td>
+                                    <td class="small text-secondary">${updated}</td>
+                                </tr>
+                            `;
+                        } catch (e) {
+                            console.error(`Error rendering row ${index}:`, e, item);
+                        }
+                    });
+                }
+
+                document.getElementById('current-page-num').innerText = data.current_page || 1;
+                document.getElementById('total-pages-num').innerText = data.total_pages || 1;
+                document.getElementById('prev-page-btn').disabled = (data.current_page || 1) <= 1;
+                document.getElementById('next-page-btn').disabled = (data.current_page || 1) >= (data.total_pages || 1);
+            })
+            .catch(err => {
+                console.error("Fetch error:", err);
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">Сбой сети или сервера: ${err.message}</td></tr>`;
+            });
+    }
+
+    // Handlers
+    document.getElementById('ozon-btn').addEventListener('change', () => {
+        currentPlatform = 'ozon';
+        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
+        currentPage = 1;
+        loadStats(); loadChart(); loadTable();
+    });
+    document.getElementById('wb-btn').addEventListener('change', () => {
+        currentPlatform = 'wb';
+        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
+        currentPage = 1;
+        loadStats(); loadChart(); loadTable();
     });
 
-    document.getElementById('wb-btn').addEventListener('change', function () {
-        if (this.checked) {
-            currentPlatform = 'wb';
-            loadStats();
-            loadChart();
-        }
+    document.getElementById('apply-filters-btn').addEventListener('click', () => { currentPage = 1; loadTable(); });
+    document.getElementById('prev-page-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadTable(); } });
+    document.getElementById('next-page-btn').addEventListener('click', () => { currentPage++; loadTable(); });
+
+    document.getElementById('export-excel-btn').addEventListener('click', () => {
+        const search = document.getElementById('filter-search').value;
+        const store = document.getElementById('filter-store').value;
+        const minPrice = document.getElementById('filter-min-price').value;
+        const maxPrice = document.getElementById('filter-max-price').value;
+
+        const url = `/api/dashboard/export?platform=${currentPlatform}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${minPrice}&max_price=${maxPrice}`;
+        window.location.href = url;
     });
 
-    // Load data on page load
-    document.addEventListener('DOMContentLoaded', () => {
-        loadStats();
-        loadChart();
-    });
+    // Initial load
+    loadStats();
+    loadChart();
+    loadTable();
 </script>
+<style>
+    .btn-check:checked+label {
+        background: var(--brand-primary) !important;
+        color: white !important;
+    }
+
+    .form-control-sm,
+    .form-select-sm {
+        font-size: 0.85rem;
+    }
+
+    #table-headers th {
+        background: rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 12px 10px;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #94a3b8;
+    }
+
+    tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+</style>
 {% endblock %}

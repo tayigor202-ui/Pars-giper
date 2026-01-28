@@ -480,6 +480,11 @@ def save_batch_to_db(batch):
         try:
             # Use SAVEPOINT to prevent transaction abortion on error
             cur.execute("SAVEPOINT sp1")
+            # Clean SKU (remove .0 and ensure string)
+            raw_sku = str(item['sku']).strip()
+            if raw_sku.endswith('.0'):
+                raw_sku = raw_sku[:-2]
+                
             cur.execute("""
                 INSERT INTO public.prices (sku, competitor_name, price_card, price_nocard, price_old, name, status, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
@@ -492,7 +497,7 @@ def save_batch_to_db(batch):
                     status = EXCLUDED.status,
                     created_at = NOW()
             """, (
-                item['sku'], 
+                raw_sku, 
                 item['competitor_name'],
                 item.get('price_card'), 
                 item.get('price_nocard'), 
@@ -627,7 +632,17 @@ def load_products_from_db():
     cur=conn.cursor()
     # Fetch competitor_name and sp_code as well
     cur.execute("""SELECT sku, name, competitor_name, sp_code FROM public.prices WHERE sku IS NOT NULL ORDER BY sku""")
-    products=[(sku,name or '', comp_name or '', sp_code or '') for (sku,name,comp_name,sp_code) in cur.fetchall()]
+    raw_data = cur.fetchall()
+    
+    products = []
+    for (sku, name, comp_name, sp_code) in raw_data:
+        # Clean SKU from float-like strings (e.g., '123.0' -> '123')
+        clean_sku = str(sku).strip()
+        if clean_sku.endswith('.0'):
+            clean_sku = clean_sku[:-2]
+        
+        products.append((clean_sku, name or '', comp_name or '', sp_code or ''))
+        
     cur.close()
     conn.close()
     return products
@@ -992,7 +1007,10 @@ def main():
         print("\n"+"="*100)
         print("🕵️ ПРОВЕРКА НАРУШЕНИЙ (Скрины + Telegram)")
         print("="*100)
-        check_violations.run_check()
+        if check_violations is not None:
+            check_violations.run_check()
+        else:
+            print("[INFO] Модуль нарушений (check_violations) не найден, пропускаем...")
             
     except Exception as e:
         print(f"[ERROR] Ошибка при генерации/отправке отчета: {e}")

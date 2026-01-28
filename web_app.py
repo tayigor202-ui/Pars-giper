@@ -2,7 +2,7 @@ import os
 import json
 import psycopg2
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 import bcrypt
 from dotenv import load_dotenv
@@ -11,6 +11,8 @@ import threading
 import scheduler
 from user_management import UserManager
 from functools import wraps
+import pandas as pd
+import io
 
 CONFIG_FILE = 'config.json'
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -174,7 +176,9 @@ def start_parser():
     try:
         # Start run_all.bat in separate window with absolute path
         bat_file = os.path.join(ROOT_DIR, 'run_all.bat')
-        subprocess.Popen(['cmd', '/c', 'start', 'OZON Parser', 'cmd', '/c', bat_file], cwd=ROOT_DIR, shell=True)
+        # Improved command for Windows start - /c means close window after completion
+        cmd = f'start "OZON Parser" cmd /c "{bat_file}"'
+        subprocess.Popen(cmd, cwd=ROOT_DIR, shell=True)
         return jsonify({'status': 'success', 'message': 'Парсинг OZON запущен'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
@@ -200,7 +204,9 @@ def start_wb_parser():
     try:
         # Start run_wb.bat in separate window with absolute path
         bat_file = os.path.join(ROOT_DIR, 'run_wb.bat')
-        subprocess.Popen(['cmd', '/c', 'start', 'WB Parser', 'cmd', '/c', bat_file], cwd=ROOT_DIR, shell=True)
+        # Improved command for Windows start - /c means close window after completion
+        cmd = f'start "WB Parser" cmd /c "{bat_file}"'
+        subprocess.Popen(cmd, cwd=ROOT_DIR, shell=True)
         return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
@@ -535,7 +541,160 @@ def dashboard_chart():
         print(f"[ERROR] Chart data failed: {str(e)}")
         return jsonify({'labels': [], 'data': []}), 500
 
-@app.route('/api/schedules', methods=['GET'])
+@app.route('/api/dashboard/table', methods=['GET'])
+@login_required
+def dashboard_table():
+    platform = request.args.get('platform', 'ozon')
+    search = request.args.get('search', '')
+    min_price = request.args.get('min_price', '')
+    max_price = request.args.get('max_price', '')
+    store = request.args.get('store', '')
+    page = int(request.args.get('page', 1))
+    per_page = 20
+    
+    try:
+        conn = psycopg2.connect(
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
+        )
+        table = 'wb_prices' if platform == 'wb' else 'prices'
+        cur = conn.cursor()
+        
+        # Include status for logic matching
+        query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status FROM {table} WHERE 1=1"
+        params = []
+        
+        if search:
+            query += " AND (sku ILIKE %s OR name ILIKE %s)"
+            params.extend([f"%{search}%", f"%{search}%"])
+        if store:
+            query += " AND competitor_name = %s"
+            params.append(store)
+        if min_price:
+            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+            params.append(min_price)
+        if max_price:
+            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+            params.append(max_price)
+            
+        # Count total for pagination
+        count_query = f"SELECT COUNT(*) FROM ({query}) as sub"
+        cur.execute(count_query, params)
+        total_count = cur.fetchone()[0]
+        
+        # Add ordering (match Excel report: name, competitor_name for Ozon; sku, competitor for WB) and limit
+        # Use NULLS LAST to ensure items with missing names/skus don't push content off the first page
+        order_by = "name NULLS LAST, competitor_name" if platform == 'ozon' else "sku NULLS LAST, competitor_name"
+        query += f" ORDER BY {order_by} LIMIT %s OFFSET %s"
+        params.extend([per_page, (page - 1) * per_page])
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        # Get stores list for filter
+        cur.execute(f"SELECT DISTINCT competitor_name FROM {table} WHERE competitor_name IS NOT NULL ORDER BY competitor_name")
+        stores = [r[0] for r in cur.fetchall()]
+        
+        cur.close()
+        conn.close()
+        
+        # Formatting function matching the report logic
+        def format_val(val, status):
+            st = str(status or '').upper()
+            if 'OUT_OF_STOCK' in st:
+                return 'Товар закончился'
+            if 'ANTIBOT' in st:
+                return 'Ошибка (Антибот)'
+            if 'ERROR' in st:
+                return 'Ошибка парсинга'
+            if 'NO_PRICE' in st:
+                return 'Нет цены'
+            if val is None or str(val).lower() in ['none', 'nan', '']:
+                return '---'
+            return str(val)
+
+        items = []
+        for r in rows:
+            status = r[7]
+            items.append({
+                'sku': r[0],
+                'name': r[1],
+                'seller': r[2],
+                'promo': format_val(r[3], status),
+                'price': format_val(r[4], status),
+                'old': format_val(r[5], status),
+                'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---'
+            })
+            
+        return jsonify({
+            'items': items,
+            'total_pages': (total_count + per_page - 1) // per_page,
+            'current_page': page,
+            'stores': stores
+        })
+    except Exception as e:
+        print(f"[ERROR] Table data failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dashboard/export', methods=['GET'])
+@login_required
+def dashboard_export():
+    platform = request.args.get('platform', 'ozon')
+    search = request.args.get('search', '')
+    min_price = request.args.get('min_price', '')
+    max_price = request.args.get('max_price', '')
+    store = request.args.get('store', '')
+    
+    try:
+        conn = psycopg2.connect(
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
+        )
+        table = 'wb_prices' if platform == 'wb' else 'prices'
+        
+        query = f"SELECT sku as \"SKU\", competitor_name as \"Продавец\", price_card as \"Промо\", price_nocard as \"Цена\", price_old as \"Старая\" FROM {table} WHERE 1=1"
+        params = []
+        
+        if search:
+            query += " AND (sku ILIKE %s OR name ILIKE %s)"
+            params.extend([f"%{search}%", f"%{search}%"])
+        if store:
+            query += " AND competitor_name = %s"
+            params.append(store)
+        if min_price:
+            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+            params.append(min_price)
+        if max_price:
+            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+            params.append(max_price)
+            
+        df = pd.read_sql(query, conn, params=params)
+        conn.close()
+        
+        # Convert date to string for Excel
+        if not df.empty and 'Дата обновления' in df.columns:
+            df['Дата обновления'] = df['Дата обновления'].dt.strftime('%Y-%m-%d %H:%M')
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Report')
+        
+        output.seek(0)
+        
+        filename = f"report_{platform}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        return send_file(output, as_attachment=True, download_name=filename, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+    except Exception as e:
+        print(f"[ERROR] Export failed: {str(e)}")
+        return str(e), 500
 @login_required
 def get_schedules():
     """Get all schedules"""

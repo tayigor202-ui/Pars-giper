@@ -4,19 +4,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}OZON Parser Dashboard{% endblock %}</title>
+    <title>{% block title %}Analytics Pro{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
     <style>
         :root {
-            --primary: #00d2ff;
-            --secondary: #92fe9d;
-            --accent: #7000ff;
-            --bg-dark: #050507;
-            --card-glass: rgba(10, 10, 15, 0.75);
-            --border-glass: rgba(255, 255, 255, 0.1);
-            --text-main: #f0f0f5;
-            --glow: rgba(0, 210, 255, 0.3);
+            --brand-primary: #6366f1;
+            --brand-secondary: #a855f7;
+            --bg-deep: #0f1016;
+            --glass-bg: rgba(23, 24, 33, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --card-radius: 24px;
+            --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         * {
@@ -26,227 +30,181 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg-dark) url('/static/img/ui_background_ultra.png?v=ultra_premium') no-repeat center center fixed;
-            background-size: cover;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-deep);
+            background-image: radial-gradient(circle at top left, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at bottom right, rgba(168, 85, 247, 0.1) 0%, transparent 40%);
+            background-attachment: fixed;
             min-height: 100vh;
-            color: var(--text-main);
+            color: var(--text-primary);
             overflow-x: hidden;
             display: flex;
             flex-direction: column;
+            line-height: 1.6;
         }
 
-        /* Ambient Glow Decor */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: radial-gradient(circle at 50% 50%, rgba(112, 0, 255, 0.05) 0%, transparent 80%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            transition: 0.3s;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary);
-        }
-
+        /* Float Navigation */
         .navbar {
-            background: rgba(5, 5, 10, 0.6) !important;
-            backdrop-filter: blur(40px);
-            border-bottom: 1px solid var(--border-glass);
-            padding: 0.7rem 0;
+            background: rgba(15, 16, 22, 0.8) !important;
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 1rem 0;
             position: sticky;
             top: 0;
             z-index: 1000;
         }
 
         .navbar-brand {
-            font-weight: 900;
-            font-size: 1.6rem;
-            background: linear-gradient(135deg, #fff 30%, var(--primary) 100%);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -1px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 1.5rem;
+            letter-spacing: -0.5px;
+            color: var(--text-primary) !important;
             display: flex;
             align-items: center;
+            gap: 12px;
         }
 
         .navbar-brand i {
-            margin-right: 10px;
+            color: var(--brand-primary);
             font-size: 1.8rem;
         }
 
         .nav-link {
-            color: rgba(255, 255, 255, 0.5) !important;
-            font-weight: 600;
-            font-size: 0.95rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 0.8rem 1.5rem !important;
-            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+            color: var(--text-secondary) !important;
+            font-weight: 500;
+            padding: 0.6rem 1.2rem !important;
             border-radius: 12px;
+            transition: var(--transition-smooth);
+            margin: 0 4px;
         }
 
         .nav-link:hover,
         .nav-link.active {
-            color: var(--primary) !important;
-            background: rgba(255, 255, 255, 0.03);
-            text-shadow: 0 0 10px rgba(0, 210, 255, 0.5);
+            color: var(--text-primary) !important;
+            background: rgba(255, 255, 255, 0.05);
         }
 
+        /* Bento Cards */
         .main-card {
-            background: var(--card-glass);
-            backdrop-filter: blur(45px);
-            border-radius: 35px;
-            border: 1px solid var(--border-glass);
-            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.7);
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.4s ease;
-        }
-
-        .main-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 5px;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
-            z-index: 2;
+            background: var(--glass-bg);
+            backdrop-filter: blur(40px);
+            border-radius: var(--card-radius);
+            border: 1px solid var(--glass-border);
+            padding: 2.5rem;
+            transition: var(--transition-smooth);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+            margin-bottom: 2rem;
         }
 
         .stat-card {
             background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(50px);
-            border-radius: 30px;
-            border: 1px solid var(--border-glass);
-            padding: 2.5rem;
-            transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
-            position: relative;
-            z-index: 1;
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: var(--transition-smooth);
         }
 
         .stat-card:hover {
-            transform: translateY(-15px) scale(1.03);
-            border-color: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 210, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-8px);
+            border-color: rgba(255, 255, 255, 0.15);
         }
 
-        .stat-value {
-            font-size: 3.8rem;
-            font-weight: 1000;
-            letter-spacing: -2px;
-            background: linear-gradient(to bottom, #fff, #aaa);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            line-height: 1;
-        }
-
-        .btn-premium {
-            background: linear-gradient(135deg, var(--accent) 0%, #300060 100%);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 18px;
-            padding: 1.2rem 2.8rem;
-            font-weight: 900;
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 2px;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            color: #fff;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        }
-
-        .btn-premium:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(112, 0, 255, 0.5);
-            filter: brightness(1.2) saturate(1.2);
-        }
-
-        .page-title {
-            font-size: 3.5rem;
-            font-weight: 1000;
-            letter-spacing: -2px;
-            background: linear-gradient(to right, #fff 20%, rgba(255, 255, 255, 0.4) 100%);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            letter-spacing: 1px;
             margin-bottom: 0.5rem;
         }
 
-        .reveal {
-            animation: ultraFadeIn 1s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+        .stat-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
         }
 
-        @keyframes ultraFadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(50px) scale(0.98);
-                filter: blur(10px);
-            }
+        /* Modern Buttons */
+        .btn-action {
+            background: var(--brand-primary);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 0.8rem 2rem;
+            font-weight: 600;
+            transition: var(--transition-smooth);
+        }
 
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-                filter: blur(0);
-            }
+        .btn-action:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+            background: #5053e1;
+            color: white;
+        }
+
+        .page-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
         }
 
         .alert {
-            background: rgba(255, 255, 255, 0.02);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-left: 5px solid var(--primary);
-            border-radius: 20px;
-            padding: 1.5rem 2rem;
-            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            color: var(--text-primary);
+            padding: 1rem 1.5rem;
         }
 
         .form-control,
         .form-select {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-glass);
-            border-radius: 16px;
-            color: #fff !important;
-            padding: 1.1rem 1.5rem;
-            font-size: 1.1rem;
-            transition: all 0.3s;
+            background: rgba(0, 0, 0, 0.2) !important;
+            border: 1px solid var(--glass-border) !important;
+            border-radius: 12px;
+            color: white !important;
+            padding: 0.8rem 1.2rem;
+            transition: var(--transition-smooth);
         }
 
-        .form-control:focus {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: var(--primary);
-            box-shadow: 0 0 40px rgba(0, 210, 255, 0.1);
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--brand-primary) !important;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1) !important;
+            background: rgba(0, 0, 0, 0.3) !important;
         }
 
-        /* Neon Decorations */
-        .neon-glow-cyan {
-            text-shadow: 0 0 20px rgba(0, 210, 255, 0.6);
-            color: var(--primary);
+        .container {
+            max-width: 1300px;
         }
 
-        .neon-glow-purple {
-            text-shadow: 0 0 20px rgba(112, 0, 255, 0.6);
-            color: #a066ff;
+        /* Table Styling */
+        .table {
+            color: var(--text-primary) !important;
+        }
+
+        .table thead th {
+            border-bottom: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        .table td {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            vertical-align: middle;
+            padding: 1.2rem 0.75rem;
         }
     </style>
 </head>
@@ -254,9 +212,9 @@
 <body>
     {% if current_user.is_authenticated %}
     <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container-fluid">
+        <div class="container">
             <a class="navbar-brand" href="{{ url_for('dashboard') }}">
-                <i class="bi bi-graph-up-arrow"></i> OZON Parser
+                <i class="bi bi-intersect"></i> Analytics
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -266,41 +224,41 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
                             href="{{ url_for('dashboard') }}">
-                            <i class="bi bi-speedometer2"></i> Дашборд
+                            Дашборд
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'parser' %}active{% endif %}"
                             href="{{ url_for('parser') }}">
-                            <i class="bi bi-play-circle"></i> Управление
+                            Управление
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}"
                             href="{{ url_for('settings') }}">
-                            <i class="bi bi-gear"></i> Настройки
+                            Настройки
                         </a>
                     </li>
                 </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('logout') }}">
-                            <i class="bi bi-box-arrow-right"></i> Выход
-                        </a>
-                    </li>
-                </ul>
+                <div class="navbar-nav">
+                    {% if current_user.has_permission('can_manage_users') %}
+                    <a class="nav-link {% if request.endpoint == 'users' %}active{% endif %}"
+                        href="{{ url_for('users') }}">Пользователи</a>
+                    {% endif %}
+                    <a class="nav-link" href="{{ url_for('logout') }}">Выход</a>
+                </div>
             </div>
         </div>
     </nav>
     {% endif %}
 
-    <div class="container-fluid {% if current_user.is_authenticated %}mt-4{% endif %}">
+    <div class="container mt-5 mb-5">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         {% for category, message in messages %}
-        <div class="alert alert-dismissible fade show" role="alert">
+        <div class="alert alert-dismissible fade show mb-4" role="alert">
             {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
         </div>
         {% endfor %}
         {% endif %}

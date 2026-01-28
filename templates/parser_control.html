@@ -1,61 +1,46 @@
 {% extends "base.html" %}
 
-{% block title %}Управление парсером - OZON Parser{% endblock %}
+{% block title %}Управление - Analytics{% endblock %}
 
 {% block content %}
-<div class="row mb-5 reveal">
+<div class="row mb-4">
     <div class="col-12">
-        <h1 class="page-title"><i class="bi bi-terminal neon-glow-cyan"></i> Оперативный Штаб</h1>
-        <p class="page-subtitle">Централизованное управление нейронными потоками сбора данных</p>
+        <h1 class="page-title">Управление</h1>
+        <p class="page-subtitle">Запуск и остановка процессов парсинга.</p>
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-12">
-        <div class="main-card reveal" style="animation-delay: 0.1s">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h4 class="mb-0 fw-bold"><i class="bi bi-command neon-glow-cyan"></i> Главная Консоль</h4>
-                <div class="text-neon-cyan small fw-bold" style="letter-spacing: 2px;"><i
-                        class="bi bi-record-circle-fill"></i> SYSTEM ACTIVE</div>
+<div class="row align-items-stretch">
+    <div class="col-lg-5">
+        <div class="main-card h-100">
+            <h3 class="h5 mb-4 fw-bold">Командный центр</h3>
+
+            <div class="d-grid gap-3 mb-4">
+                <button id="start-parser-btn" class="btn btn-action py-3">
+                    <i class="bi bi-play-fill me-2"></i> Запуск Ozon
+                </button>
+                <button id="start-wb-parser-btn" class="btn btn-action py-3" style="background: #a855f7;">
+                    <i class="bi bi-play-fill me-2"></i> Запуск WB
+                </button>
+                <button id="stop-parser-btn" class="btn btn-outline-danger py-3 border-2 rounded-4">
+                    <i class="bi bi-stop-fill me-2"></i> Остановить всё
+                </button>
             </div>
-            <div class="card-body">
-                <div class="row g-5 mb-5">
-                    <div class="col-md-4">
-                        <button id="start-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">
-                            <i class="bi bi-play-circle-fill me-2"></i> ЗАПУСК OZON
-                        </button>
-                    </div>
-                    <div class="col-md-4">
-                        <button id="start-wb-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #7000ff 0%, #a066ff 100%);">
-                            <i class="bi bi-play-circle-fill me-2"></i> ЗАПУСК WB
-                        </button>
-                    </div>
-                    <div class="col-md-4">
-                        <button id="stop-parser-btn" class="btn btn-premium w-100 h-100"
-                            style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <i class="bi bi-stop-circle-fill me-2"></i> СТОП-СИГНАЛ
-                        </button>
-                    </div>
-                </div>
 
-                <div id="status-message" class="reveal" style="animation-delay: 0.3s">
-                    <!-- High-tech status report will flow here -->
-                </div>
+            <div id="status-message" class="mt-auto"></div>
+        </div>
+    </div>
 
-                <div class="mt-5 p-5 rounded-4 reveal"
-                    style="background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); animation-delay: 0.4s">
-                    <div class="d-flex align-items-center mb-4 text-secondary small text-uppercase fw-bold"
-                        style="letter-spacing:3px">
-                        <i class="bi bi-hash me-2 neon-glow-cyan"></i> Поток системного лога
-                    </div>
-                    <div id="mini-log" class="font-monospace small"
-                        style="color: rgba(0, 210, 255, 0.7); max-height: 200px; overflow-y: auto; line-height: 1.8;">
-                        > Инициализация интерфейса оператора... Готово.<br>
-                        > Ожидание команды пользователя...
-                    </div>
-                </div>
+    <div class="col-lg-7">
+        <div class="main-card h-100 bg-black bg-opacity-50">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="h5 mb-0 fw-bold">Терминал</h3>
+                <i class="bi bi-terminal text-secondary"></i>
+            </div>
+
+            <div id="mini-log" class="font-monospace small p-3"
+                style="height: 300px; overflow-y: auto; color: #94a3b8; background: rgba(0,0,0,0.3); border-radius: 12px;">
+                <span class="text-secondary">[SYSTEM]</span> Ожидание команды пользователя...
             </div>
         </div>
     </div>
@@ -64,58 +49,32 @@
 
 {% block scripts %}
 <script>
+    const log = document.getElementById('mini-log');
+    function addLog(msg, type = 'INFO') {
+        const time = new Date().toLocaleTimeString();
+        log.innerHTML += `<div class="mb-1"><span class="text-secondary">[${time}]</span> <span class="text-${type === 'ERROR' ? 'danger' : 'secondary'}">[${type}]</span> ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+    }
+
     document.getElementById('start-parser-btn').addEventListener('click', function () {
-        if (!confirm('Запустить парсер Ozon?')) return;
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск OZON...';
+        addLog('Запрос на запуск Ozon отправлен...');
         fetch('/api/parser/start', { method: 'POST' })
             .then(r => r.json())
-            .then(data => {
-                const statusDiv = document.getElementById('status-message');
-                statusDiv.innerHTML = '<div class="alert"><i class="bi bi-info-circle"></i> ' + data.message + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить OZON';
-            }).catch(err => {
-                document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить OZON';
-            });
+            .then(data => addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR'));
     });
 
     document.getElementById('start-wb-parser-btn').addEventListener('click', function () {
-        if (!confirm('Запустить парсер Wildberries?')) return;
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск WB...';
+        addLog('Запрос на запуск WB отправлен...');
         fetch('/api/wb/parser/start', { method: 'POST' })
             .then(r => r.json())
-            .then(data => {
-                const statusDiv = document.getElementById('status-message');
-                statusDiv.innerHTML = '<div class="alert" style="border-left-color: #9c27b0;"><i class="bi bi-info-circle"></i> ' + data.message + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить WB';
-            }).catch(err => {
-                document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-play-fill"></i> Запустить WB';
-            });
+            .then(data => addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR'));
     });
 
     document.getElementById('stop-parser-btn').addEventListener('click', function () {
-        if (!confirm('Остановить все процессы парсинга?')) return;
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Останавливаем...';
+        addLog('Остановка процессов...');
         fetch('/api/parser/stop', { method: 'POST' })
             .then(r => r.json())
-            .then(data => {
-                const statusDiv = document.getElementById('status-message');
-                statusDiv.innerHTML = '<div class="alert alert-warning"><i class="bi bi-stop-circle"></i> ' + data.message + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-stop-fill"></i> Остановить все';
-            }).catch(err => {
-                document.getElementById('status-message').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-stop-fill"></i> Остановить все';
-            });
+            .then(data => addLog(data.message, 'WARNING'));
     });
 </script>
 {% endblock %}

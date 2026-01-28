@@ -30,26 +30,21 @@ if not SPREADSHEET_URL:
 print(f"[INFO] Using Wildberries Sheet URL: {SPREADSHEET_URL}")
 
 def extract_sku_from_url(value):
-    """
-    Извлекает SKU из URL или возвращает значение как есть, если это уже SKU.
-    Поддерживает Wildberries URLs.
-    """
-    if pd.isna(value) or value == '':
+    """Извлекает SKU из URL или возвращает как есть"""
+    if pd.isna(value):
         return None
     
     value = str(value).strip()
+    if not value or value.lower() == 'nan':
+        return None
     
     # Wildberries URL patterns
-    # Example: https://www.wildberries.ru/catalog/123456789/detail.aspx
     wb_match = re.search(r'wildberries\.ru/catalog/(\d+)', value)
     if wb_match:
         return wb_match.group(1)
     
-    # If it's already a number, return as is
-    if value.replace('.', '').replace(',', '').isdigit():
-        return value.replace('.0', '').replace(',', '')
-    
-    return None
+    # Если это не URL - возвращаем само значение (поддержка буквенно-цифровых SKU)
+    return value
 
 def load_from_google_sheets():
     """
@@ -120,11 +115,8 @@ def load_from_google_sheets():
         conn.autocommit = False
         cur = conn.cursor()
         
-        # CLEAR OLD DATA BEFORE IMPORT
-        print("[DB] Очистка таблицы wb_prices (Wildberries)...")
-        cur.execute("DELETE FROM public.wb_prices")
-        conn.commit()
-        print("[DB] OK Данные Wildberries очищены, начинаем импорт")
+        # SMART SYNC: Do NOT clear data, instead we will UPDATE existing or INSERT new
+        print("[DB] Начинаем умную синхронизацию WB (Upsert)...")
         
         # Import data
         imported_products = 0
@@ -144,18 +136,20 @@ def load_from_google_sheets():
             for sku_col in sku_columns:
                 raw_value = row[sku_col]
                 sku = extract_sku_from_url(raw_value)
+                if not sku:
+                    continue
+                    
                 competitor_name = sku_col.strip()
                 
-                if sku:  # Only insert if SKU is not None
-                    # Use ON CONFLICT to be safe
-                    cur.execute("""
-                        INSERT INTO public.wb_prices (sku, name, competitor_name, sp_code) 
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (sku, competitor_name) 
-                        DO UPDATE SET 
-                            name = EXCLUDED.name,
-                            sp_code = EXCLUDED.sp_code
-                    """, (sku, name if name else None, competitor_name, sp_kod))
+                # Use ON CONFLICT to update metadata but KEEP prices if they exist
+                cur.execute("""
+                    INSERT INTO public.wb_prices (sku, name, competitor_name, sp_code) 
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (sku, competitor_name) 
+                    DO UPDATE SET 
+                        name = EXCLUDED.name,
+                        sp_code = EXCLUDED.sp_code
+                """, (sku, name if name else None, competitor_name, sp_kod))
                     
                     total_skus += 1
                     product_has_skus = True

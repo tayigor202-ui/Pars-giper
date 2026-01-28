@@ -54,25 +54,24 @@ else:
         sys.exit(1)
 
 def extract_sku_from_url(url_or_sku):
-    """Извлекает SKU из URL или возвращает как есть, если это уже SKU"""
+    """Извлекает SKU из URL или возвращает как есть"""
     if pd.isna(url_or_sku):
         return None
     
     value = str(url_or_sku).strip()
+    if not value or value.lower() == 'nan':
+        return None
     
     # Если это URL, извлекаем SKU
-    if 'ozon.ru' in value or 'http' in value:
+    if 'ozon.ru' in value or 'http' in value or 'wildberries.ru' in value:
         # Пытаемся найти числовой SKU в URL
         match = re.search(r'/(\d+)/?', value)
         if match:
             return match.group(1)
         return None
     
-    # Если это уже число, возвращаем как есть
-    if value.replace('.', '').replace(',', '').isdigit():
-        return value.replace('.0', '').replace(',', '')
-    
-    return None
+    # Если это не URL - возвращаем само значение (поддержка буквенно-цифровых SKU)
+    return value
 
 def load_from_google_sheets():
     """
@@ -133,11 +132,8 @@ def load_from_google_sheets():
         conn.autocommit = False
         cur = conn.cursor()
         
-        # CLEAR OLD DATA BEFORE IMPORT
-        print("[DB] Очистка таблицы prices (Ozon)...")
-        cur.execute("DELETE FROM public.prices")
-        conn.commit()
-        print("[DB] OK Данные Ozon очищены, начинаем импорт")
+        # SMART SYNC: Do NOT clear data, instead we will UPDATE existing or INSERT new
+        print("[DB] Начинаем умную синхронизацию (Upsert)...")
         
         # Import data
         imported_products = 0
@@ -158,9 +154,16 @@ def load_from_google_sheets():
             for sku_col in sku_columns:
                 raw_value = row[sku_col]
                 sku = extract_sku_from_url(raw_value)
+                if sku:
+                    sku = str(sku).strip()
+                    if sku.endswith('.0'): sku = sku[:-2]
+                
+                if not sku:
+                    continue
+                    
                 competitor_name = sku_col.strip()
                 
-                # Use ON CONFLICT to be safe
+                # Use ON CONFLICT to update metadata but KEEP prices if they exist
                 cur.execute("""
                     INSERT INTO public.prices (sku, name, competitor_name, sp_code) 
                     VALUES (%s, %s, %s, %s)
