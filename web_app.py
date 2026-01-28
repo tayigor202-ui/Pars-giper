@@ -56,11 +56,11 @@ def load_user(user_id):
     """Load user from database by ID"""
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
+            dbname=os.getenv('DB_NAME', 'ParserOzon'),
+            user=os.getenv('DB_USER', 'GiperBox'),
+            password=os.getenv('DB_PASS', 'Gingerik83'),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432')
         )
         cur = conn.cursor()
         cur.execute("""
@@ -458,11 +458,11 @@ def dashboard_stats():
     platform = request.args.get('platform', 'ozon')
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
+            dbname=os.getenv('DB_NAME', 'ParserOzon'),
+            user=os.getenv('DB_USER', 'GiperBox'),
+            password=os.getenv('DB_PASS', 'Gingerik83'),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
@@ -519,11 +519,11 @@ def dashboard_chart():
     platform = request.args.get('platform', 'ozon')
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
+            dbname=os.getenv('DB_NAME', 'ParserOzon'),
+            user=os.getenv('DB_USER', 'GiperBox'),
+            password=os.getenv('DB_PASS', 'Gingerik83'),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
@@ -554,9 +554,9 @@ def dashboard_chart():
         print(f"[ERROR] Chart data failed: {str(e)}")
         return jsonify({'labels': [], 'data': []}), 500
 
-@app.route('/api/dashboard/table', methods=['GET'])
+@app.route('/api/dashboard/items', methods=['GET'])
 @login_required
-def dashboard_table():
+def dashboard_items():
     platform = request.args.get('platform', 'ozon')
     search = request.args.get('search', '')
     min_price = request.args.get('min_price', '')
@@ -567,17 +567,17 @@ def dashboard_table():
     
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
+            dbname=os.getenv('DB_NAME', 'ParserOzon'),
+            user=os.getenv('DB_USER', 'GiperBox'),
+            password=os.getenv('DB_PASS', 'Gingerik83'),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
         
         # Include status for logic matching
-        query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status FROM {table} WHERE 1=1"
+        query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code FROM {table} WHERE 1=1"
         params = []
         
         if search:
@@ -639,7 +639,8 @@ def dashboard_table():
                 'promo': format_val(r[3], status),
                 'price': format_val(r[4], status),
                 'old': format_val(r[5], status),
-                'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---'
+                'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---',
+                'sp_code': r[8] or '---'
             })
             
         return jsonify({
@@ -665,11 +666,11 @@ def dashboard_export():
     
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
+            dbname=os.getenv('DB_NAME', 'ParserOzon'),
+            user=os.getenv('DB_USER', 'GiperBox'),
+            password=os.getenv('DB_PASS', 'Gingerik83'),
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=os.getenv('DB_PORT', '5432')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         

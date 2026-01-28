@@ -13,11 +13,11 @@ load_dotenv()
 # Database connection
 DB_URL = os.getenv('DB_URL')
 if not DB_URL:
-    DB_USER = os.getenv('DB_USER')
-    DB_PASS = os.getenv('DB_PASS')
-    DB_HOST = os.getenv('DB_HOST')
-    DB_PORT = os.getenv('DB_PORT')
-    DB_NAME = os.getenv('DB_NAME')
+    DB_USER = os.getenv('DB_USER', 'GiperBox')
+    DB_PASS = os.getenv('DB_PASS', 'Gingerik83')
+    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    DB_PORT = os.getenv('DB_PORT', '5432')
+    DB_NAME = os.getenv('DB_NAME', 'ParserOzon')
     DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 class UserManager:
