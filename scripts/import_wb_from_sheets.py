@@ -29,6 +29,19 @@ if not SPREADSHEET_URL:
 
 print(f"[INFO] Using Wildberries Sheet URL: {SPREADSHEET_URL}")
 
+def get_export_url(url):
+    """Конвертирует обычную ссылку Google Sheets в ссылку для экспорта CSV"""
+    if not url: return None
+    if '/export?format=csv' in url: return url
+    match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if match:
+        spreadsheet_id = match.group(1)
+        return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
+    return url
+
+SPREADSHEET_URL = get_export_url(SPREADSHEET_URL)
+print(f"[INFO] Export URL: {SPREADSHEET_URL}")
+
 def extract_sku_from_url(value):
     """
     Извлекает SKU из URL или возвращает значение как есть, если это уже SKU.

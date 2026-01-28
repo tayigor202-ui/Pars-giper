@@ -1,4 +1,5 @@
 import os
+import sys
 import psycopg2
 import pandas as pd
 from dotenv import load_dotenv
@@ -40,7 +41,6 @@ def get_export_url(url):
         return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
     return url
 
-import sys
 if len(sys.argv) > 1:
     SPREADSHEET_URL = get_export_url(sys.argv[1])
     print(f"[SHEETS] Using provided URL: {SPREADSHEET_URL}")

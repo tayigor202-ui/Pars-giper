@@ -1,6 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import os, sys, time, random, json, re, threading, requests, shutil, string, subprocess, psutil
+import os, sys, time, random, json, re, threading, requests, shutil, string, subprocess, psutil, io
+# Force UTF-8 encoding for stdout and stderr to handle emojis and Russian text
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from queue import Queue
 from datetime import datetime, timedelta
 from pathlib import Path

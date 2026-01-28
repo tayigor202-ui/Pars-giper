@@ -67,21 +67,36 @@
 
     document.getElementById('start-parser-btn').addEventListener('click', function () {
         addLog('Запрос на запуск Ozon отправлен...');
-        fetch('/api/parser/start', { method: 'POST' })
+        fetch('/api/parser/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
             .then(r => r.json())
             .then(data => addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR'));
     });
 
     document.getElementById('start-wb-parser-btn').addEventListener('click', function () {
-        addLog('Запрос на запуск WB отправлен...');
-        fetch('/api/wb/parser/start', { method: 'POST' })
+        log.innerHTML = '<div class="text-warning">[SYSTEM] Подготовка к запуску WB...</div>';
+        fetch('/api/parser/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ platform: 'wb' })
+        })
             .then(r => r.json())
-            .then(data => addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR'));
+            .then(data => {
+                addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
+                setTimeout(() => startLogPolling('wb'), 500);
+            });
     });
 
     document.getElementById('stop-parser-btn').addEventListener('click', function () {
         addLog('Остановка процессов...');
-        fetch('/api/parser/stop', { method: 'POST' })
+        fetch('/api/parser/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
             .then(r => r.json())
             .then(data => addLog(data.message, 'WARNING'));
     });
@@ -91,7 +106,11 @@
         const btn = this;
         btn.disabled = true;
 
-        fetch('/api/git/pull', { method: 'POST' })
+        fetch('/api/git/pull', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
             .then(r => r.json())
             .then(data => {
                 addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
@@ -107,5 +126,61 @@
                 btn.disabled = false;
             });
     });
+
+    // Logging integration
+    let logInterval = null;
+    let currentPlatform = null;
+
+    function startLogPolling(platform) {
+        if (logInterval) clearInterval(logInterval);
+        currentPlatform = platform;
+
+        logInterval = setInterval(() => {
+            fetch(`/api/parser/logs?platform=${platform}&limit=100`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success' && data.logs && data.logs.length > 0) {
+                        // For terminal experience, we replace the log area with recent file lines
+                        // but only if there's actual output to show
+                        const logHeader = `<div class="text-info mb-2">--- Живой лог: ${platform.toUpperCase()} ---</div>`;
+                        const lines = data.logs.map(line => {
+                            let type = 'secondary';
+                            if (line.includes('ERROR') || line.includes('Exception')) type = 'danger';
+                            if (line.includes('SUCCESS') || line.includes('OK')) type = 'success';
+                            if (line.includes('[INFO]')) type = 'info';
+
+                            return `<div class="mb-0 small"><span class="text-${type}">${line.replace(/\n$/, '')}</span></div>`;
+                        }).join('');
+
+                        log.innerHTML = logHeader + lines;
+                        log.scrollTop = log.scrollHeight;
+                    }
+                })
+                .catch(err => console.error('Log fetch error:', err));
+        }, 2000);
+    }
+
+    // Wrap start buttons to initiate polling
+    document.getElementById('start-parser-btn').addEventListener('click', () => {
+        log.innerHTML = '<div class="text-warning">[SYSTEM] Подготовка к запуску Ozon...</div>';
+        setTimeout(() => startLogPolling('ozon'), 500);
+    });
+
+    document.getElementById('start-wb-parser-btn').addEventListener('click', () => {
+        log.innerHTML = '<div class="text-warning">[SYSTEM] Подготовка к запуску WB...</div>';
+        setTimeout(() => startLogPolling('wb'), 500);
+    });
+
+    document.getElementById('stop-parser-btn').addEventListener('click', () => {
+        if (logInterval) {
+            addLog('Логирование остановлено.');
+            // We don't clear interval immediately to see final results
+            setTimeout(() => {
+                clearInterval(logInterval);
+                logInterval = null;
+            }, 3000);
+        }
+    });
+
 </script>
 {% endblock %}

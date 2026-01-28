@@ -7,6 +7,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 import bcrypt
 from dotenv import load_dotenv
 import subprocess
+import sys
 import threading
 import core.scheduler as scheduler
 from core.user_management import UserManager
@@ -184,9 +185,28 @@ def start_parser():
             script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
             name = "WB Parser"
             
-        cmd = f'start "{name}" cmd /c "{sys.executable} {script_path}"'
-        subprocess.Popen(cmd, cwd=ROOT_DIR, shell=True)
-        return jsonify({'status': 'success', 'message': f'Парсинг {platform.upper()} запущен'})
+        # Run in background without window and redirect output to log file
+        # Use -u for unbuffered output and 'w' to clear old logs
+        log_dir = os.path.join(ROOT_DIR, 'logs')
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        log_file_path = os.path.join(log_dir, f"{platform}.log")
+        # Open in write mode to clear previous log on start
+        log_file = open(log_file_path, "w", encoding="utf-8")
+        
+        # CREATE_NO_WINDOW = 0x08000000
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        
+        subprocess.Popen([sys.executable, "-u", script_path], 
+                         cwd=ROOT_DIR, 
+                         stdout=log_file,
+                         stderr=subprocess.STDOUT,
+                         env=env)
+        
+        return jsonify({'status': 'success', 'message': f'Парсинг {platform.upper()} запущен (лог: logs/{platform}.log)'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -205,28 +225,82 @@ def git_pull():
 @permission_required('can_run_parser')
 def stop_parser():
     try:
-        # Kill both Ozon and WB parser windows and processes
-        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq OZON Parser*', '/T'], shell=True)
-        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq WB Parser*', '/T'], shell=True)
-        # Also kill any orphan python processes that might be running our parsers
-        # This is a bit aggressive, but ensures everything stops
+        # Kill python processes running our parser scripts
+        # We look for processes that have our script names in their command line
+        scripts_to_kill = [
+            'ozon_parser_production_final.py',
+            'wb_parser_production.py',
+            'run_wb.bat'
+        ]
+        
+        for script in scripts_to_kill:
+            # Use wmic to find and kill processes by command line pattern
+            cmd = f'wmic process where "commandline like \'%{script}%\'" delete'
+            subprocess.run(cmd, shell=True, capture_output=True)
+            
+        # Also kill by window title if any were started traditionally
+        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq OZON Parser*', '/T'], shell=True, capture_output=True)
+        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq WB Parser*', '/T'], shell=True, capture_output=True)
+        
         return jsonify({'status': 'success', 'message': 'Все процессы парсинга остановлены'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': f'Ошибка при остановке: {str(e)}'})
 
 @app.route('/api/wb/parser/start', methods=['POST'])
 @login_required
 @permission_required('can_run_parser')
 def start_wb_parser():
     try:
-        # Start run_wb.bat in separate window with absolute path
-        bat_file = os.path.join(ROOT_DIR, 'run_wb.bat')
-        # Improved command for Windows start - /c means close window after completion
-        cmd = f'start "WB Parser" cmd /c "{bat_file}"'
-        subprocess.Popen(cmd, cwd=ROOT_DIR, shell=True)
-        return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен'})
+        # We now prefer using the unified /api/parser/start?platform=wb
+        # but keeping this for compatibility or direct calls
+        script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
+        
+        log_dir = os.path.join(ROOT_DIR, 'logs')
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        log_file_path = os.path.join(log_dir, "wb.log")
+        # Open in write mode to clear previous log on start
+        log_file = open(log_file_path, "w", encoding="utf-8")
+        
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        
+        subprocess.Popen([sys.executable, "-u", script_path], 
+                         cwd=ROOT_DIR, 
+                         stdout=log_file,
+                         stderr=subprocess.STDOUT,
+                         env=env)
+                         
+        return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен (лог: logs/wb.log)'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/parser/logs', methods=['GET'])
+@login_required
+def get_parser_logs():
+    """Retrieve last lines of log files"""
+    platform = request.args.get('platform', 'ozon')
+    lines_count = int(request.args.get('limit', 50))
+    
+    log_dir = os.path.join(ROOT_DIR, 'logs')
+    log_file_path = os.path.join(log_dir, f"{platform}.log")
+    
+    if not os.path.exists(log_file_path):
+        return jsonify({'status': 'success', 'logs': [], 'message': 'Файл лога еще не создан'})
+        
+    try:
+        with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+            # Simple way to get last N lines
+            all_lines = f.readlines()
+            last_lines = all_lines[-lines_count:]
+            return jsonify({
+                'status': 'success',
+                'logs': last_lines
+            })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/database/update', methods=['POST'])
 @login_required
@@ -281,6 +355,72 @@ def update_database_wb():
         return jsonify({'status': 'error', 'message': 'Превышено время ожидания WB'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/database/clear_ozon', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def clear_ozon_database():
+    """Clear all OZON data from prices table"""
+    try:
+        db_url = os.getenv('DB_URL')
+        if not db_url:
+            db_user = os.getenv('DB_USER')
+            db_pass = os.getenv('DB_PASS')
+            db_host = os.getenv('DB_HOST')
+            db_port = os.getenv('DB_PORT')
+            db_name = os.getenv('DB_NAME')
+            db_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        
+        # Delete all OZON records from public.prices table
+        cur.execute("DELETE FROM public.prices")
+        deleted_count = cur.rowcount
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Таблица OZON очищена. Удалено записей: {deleted_count}'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Ошибка очистки OZON: {str(e)}'})
+
+@app.route('/api/database/clear_wb', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def clear_wb_database():
+    """Clear all Wildberries data from prices table"""
+    try:
+        db_url = os.getenv('DB_URL')
+        if not db_url:
+            db_user = os.getenv('DB_USER')
+            db_pass = os.getenv('DB_PASS')
+            db_host = os.getenv('DB_HOST')
+            db_port = os.getenv('DB_PORT')
+            db_name = os.getenv('DB_NAME')
+            db_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        
+        # Delete all WB records from public.wb_prices table
+        cur.execute("DELETE FROM public.wb_prices")
+        deleted_count = cur.rowcount
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Таблица Wildberries очищена. Удалено записей: {deleted_count}'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Ошибка очистки WB: {str(e)}'})
 
 @app.route('/api/config', methods=['GET'])
 @login_required

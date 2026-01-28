@@ -53,8 +53,11 @@
 
                 <div class="mb-3">
                     <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров OZON из Google Sheets</p>
-                    <button class="btn btn-premium w-100" id="update-db-btn">
+                    <button class="btn btn-premium w-100 mb-2" id="update-db-btn">
                         <i class="bi bi-arrow-repeat"></i> Импортировать OZON
+                    </button>
+                    <button class="btn btn-danger-premium w-100" id="clear-db-ozon-btn">
+                        <i class="bi bi-trash"></i> Очистить таблицу OZON
                     </button>
                 </div>
 
@@ -84,8 +87,11 @@
 
                 <div class="mb-3">
                     <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров WB из Google Sheets</p>
-                    <button class="btn btn-premium w-100" id="update-db-wb-btn">
+                    <button class="btn btn-premium w-100 mb-2" id="update-db-wb-btn">
                         <i class="bi bi-arrow-repeat"></i> Импортировать WB
+                    </button>
+                    <button class="btn btn-danger-premium w-100" id="clear-db-wb-btn">
+                        <i class="bi bi-trash"></i> Очистить таблицу WB
                     </button>
                 </div>
 
@@ -302,381 +308,447 @@
 </style>
 
 <script>
-    let schedules = [];
-    let scheduleIdCounter = 1;
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('Settings UI initialized');
+        let schedules = [];
+        let scheduleIdCounter = 1;
 
-    // Load saved schedules from backend
-    function loadSchedules() {
-        fetch('/api/schedules')
-            .then(r => r.json())
-            .then(data => {
-                schedules = data;
-                if (schedules.length > 0) {
-                    scheduleIdCounter = Math.max(...schedules.map(s => s.id), 0) + 1;
-                }
-                renderSchedules();
-                loadSchedulerStatus();
-            })
-            .catch(err => {
-                console.error('Error loading schedules:', err);
-                schedules = [];
-                renderSchedules();
-            });
-    }
+        // Helper for safe element access
+        const getEl = id => document.getElementById(id);
+        const setStatus = (id, msg, isError = false) => {
+            const el = getEl(id);
+            if (el) el.innerHTML = `<div class="alert ${isError ? 'alert-danger' : ''}">${msg}</div>`;
+        };
 
-    // Load scheduler status
-    function loadSchedulerStatus() {
-        fetch('/api/schedules/status')
-            .then(r => r.json())
-            .then(data => {
-                if (data.jobs && data.jobs.length > 0) {
-                    const statusHtml = '<div class="alert"><i class="bi bi-clock"></i> <strong>Активных задач:</strong> ' + data.jobs.length +
-                        '<ul class="mt-2 mb-0">' + data.jobs.map(j => '<li>' + j.name + ' - следующий запуск: ' + j.next_run + '</li>').join('') + '</ul></div>';
-                    document.getElementById('schedule-status').innerHTML = statusHtml;
-                } else {
-                    document.getElementById('schedule-status').innerHTML = '<div class="alert"><i class="bi bi-info-circle"></i> Нет активных задач расписания.</div>';
-                }
-            })
-            .catch(err => console.error('Error loading status:', err));
-    }
-
-    // Render all schedules
-    function renderSchedules() {
-        const container = document.getElementById('schedules-list');
-        if (schedules.length === 0) {
-            container.innerHTML = '<p class="text-white-50 text-center">Нет настроенных расписаний. Нажмите "Добавить расписание"</p>';
-            return;
+        // Load saved schedules from backend
+        function loadSchedules() {
+            console.log('Loading schedules...');
+            fetch('/api/schedules')
+                .then(r => r.json())
+                .then(data => {
+                    schedules = data;
+                    if (schedules.length > 0) {
+                        scheduleIdCounter = Math.max(...schedules.map(s => s.id), 0) + 1;
+                    }
+                    renderSchedules();
+                    loadSchedulerStatus();
+                })
+                .catch(err => {
+                    console.error('Error loading schedules:', err);
+                    schedules = [];
+                    renderSchedules();
+                });
         }
 
-        container.innerHTML = schedules.map(schedule => `
-        <div class="schedule-item" data-id="${schedule.id}">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0">Расписание #${schedule.id} (${schedule.platform ? schedule.platform.toUpperCase() : 'OZON'})</h6>
-                <button class="btn btn-danger btn-sm" onclick="removeSchedule(${schedule.id})">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-            
-            <div class="row g-2 mb-2">
-                <div class="col-md-6">
-                    <label class="form-label">Платформа</label>
-                    <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'platform', this.value)">
-                        <option value="ozon" ${schedule.platform === 'ozon' || !schedule.platform ? 'selected' : ''}>OZON</option>
-                        <option value="wb" ${schedule.platform === 'wb' ? 'selected' : ''}>Wildberries</option>
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Активно</label>
-                    <select class="form-select form-select-sm" onchange="updateSchedule(${schedule.id}, 'enabled', this.value)">
-                        <option value="false" ${!schedule.enabled ? 'selected' : ''}>Отключено</option>
-                        <option value="true" ${schedule.enabled ? 'selected' : ''}>Включено</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div class="mb-2">
-                <label class="form-label">Время запуска</label>
-                <input type="time" class="form-control form-control-sm" value="${schedule.time}" 
-                       onchange="updateSchedule(${schedule.id}, 'time', this.value)">
-            </div>
-            
-            <div class="mb-2">
-                <label class="form-label">Дни недели</label>
-                <div class="days-checkboxes">
-                    ${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((day, i) => `
-                        <div class="day-checkbox">
-                            <input type="checkbox" class="form-check-input" id="day-${schedule.id}-${i}" 
-                                   ${schedule.days.includes(i) ? 'checked' : ''}
-                                   onchange="updateScheduleDays(${schedule.id})">
-                            <label class="form-check-label" for="day-${schedule.id}-${i}">${day}</label>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
+        // Load scheduler status
+        function loadSchedulerStatus() {
+            fetch('/api/schedules/status')
+                .then(r => r.json())
+                .then(data => {
+                    const statusDiv = getEl('schedule-status');
+                    if (!statusDiv) return;
+
+                    if (data.jobs && data.jobs.length > 0) {
+                        const statusHtml = '<div class="alert"><i class="bi bi-clock"></i> <strong>Активных задач:</strong> ' + data.jobs.length
+                            +
+                            '<ul class="mt-2 mb-0">' + data.jobs.map(j => '<li>' + j.name + ' - следующий запуск: ' + j.next_run + '</li>')
+                                .join('') + '</ul></div>';
+                        statusDiv.innerHTML = statusHtml;
+                    } else {
+                        statusDiv.innerHTML = '<div class="alert"><i class="bi bi-info-circle"></i> Нет активных задач расписания.</div>';
+                    }
+                })
+                .catch(err => console.error('Error loading scheduler status:', err));
+        }
+
+        // Render all schedules
+        function renderSchedules() {
+            const container = getEl('schedules-list');
+            if (!container) return;
+
+            if (schedules.length === 0) {
+                container.innerHTML = '<p class="text-white-50 text-center">Нет настроенных расписаний. Нажмите \"Добавить расписание\"</p>';
+                return;
+            }
+
+            container.innerHTML = schedules.map(schedule => `
+<div class="schedule-item" data-id="${schedule.id}">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">Расписание #${schedule.id} (${schedule.platform ? schedule.platform.toUpperCase() : 'OZON'})
+        </h6>
+        <button class="btn btn-danger btn-sm" onclick="window.removeSchedule(${schedule.id})">
+            <i class="bi bi-trash"></i>
+        </button>
+    </div>
+
+    <div class="row g-2 mb-2">
+        <div class="col-md-6">
+            <label class="form-label">Платформа</label>
+            <select class="form-select form-select-sm"
+                onchange="window.updateSchedule(${schedule.id}, 'platform', this.value)">
+                <option value="ozon" ${schedule.platform === 'ozon' || !schedule.platform ? 'selected' : ''}>OZON
+                </option>
+                <option value="wb" ${schedule.platform === 'wb' ? 'selected' : ''}>Wildberries</option>
+            </select>
         </div>
-    `).join('');
-    }
+        <div class="col-md-6">
+            <label class="form-label">Активно</label>
+            <select class="form-select form-select-sm"
+                onchange="window.updateSchedule(${schedule.id}, 'enabled', this.value)">
+                <option value="false" ${!schedule.enabled ? 'selected' : ''}>Отключено</option>
+                <option value="true" ${schedule.enabled ? 'selected' : ''}>Включено</option>
+            </select>
+        </div>
+    </div>
 
-    // Add new schedule
-    document.getElementById('add-schedule-btn').addEventListener('click', () => {
-        schedules.push({
-            id: scheduleIdCounter++,
-            platform: 'ozon',
-            enabled: false,
-            time: '03:00',
-            days: [1, 2, 3, 4, 5] // Mon-Fri
-        });
-        renderSchedules();
-    });
+    <div class="mb-2">
+        <label class="form-label">Время запуска</label>
+        <input type="time" class="form-control form-control-sm" value="${schedule.time}"
+            onchange="window.updateSchedule(${schedule.id}, 'time', this.value)">
+    </div>
 
-    // Remove schedule
-    function removeSchedule(id) {
-        if (confirm('Удалить это расписание?')) {
-            schedules = schedules.filter(s => s.id !== id);
-            renderSchedules();
+    <div class="mb-2">
+        <label class="form-label">Дни недели</label>
+        <div class="days-checkboxes">
+            ${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((day, i) => `
+            <div class="day-checkbox">
+                <input type="checkbox" class="form-check-input" id="day-${schedule.id}-${i}" ${schedule.days.includes(i)
+                    ? 'checked' : ''} onchange="window.updateScheduleDays(${schedule.id})">
+                <label class="form-check-label" for="day-${schedule.id}-${i}">${day}</label>
+            </div>
+            `).join('')}
+        </div>
+    </div>
+</div>
+`).join('');
         }
-    }
 
-    // Update schedule field
-    function updateSchedule(id, field, value) {
-        const schedule = schedules.find(s => s.id === id);
-        if (schedule) {
-            schedule[field] = field === 'enabled' ? value === 'true' : value;
-        }
-    }
-
-    // Update schedule days
-    function updateScheduleDays(id) {
-        const schedule = schedules.find(s => s.id === id);
-        if (schedule) {
-            schedule.days = [];
-            for (let i = 0; i < 7; i++) {
-                const checkbox = document.getElementById(`day-${id}-${i}`);
-                if (checkbox && checkbox.checked) {
-                    schedule.days.push(i);
+        // Expose helpers to window for inline onchange/onclick
+        window.removeSchedule = (id) => {
+            if (confirm('Удалить это расписание?')) {
+                schedules = schedules.filter(s => s.id !== id);
+                renderSchedules();
+            }
+        };
+        window.updateSchedule = (id, field, value) => {
+            const schedule = schedules.find(s => s.id === id);
+            if (schedule) schedule[field] = field === 'enabled' ? value === 'true' : value;
+        };
+        window.updateScheduleDays = (id) => {
+            const schedule = schedules.find(s => s.id === id);
+            if (schedule) {
+                schedule.days = [];
+                for (let i = 0; i < 7; i++) {
+                    const checkbox = getEl(`day-${id}-${i}`); if (checkbox && checkbox.checked)
+                        schedule.days.push(i);
                 }
             }
+        };
+
+        // Add new schedule
+        const addBtn = getEl('add-schedule-btn');
+        if (addBtn) {
+            addBtn.addEventListener('click', () => {
+                schedules.push({ id: scheduleIdCounter++, platform: 'ozon', enabled: false, time: '03:00', days: [1, 2, 3, 4, 5] });
+                renderSchedules();
+            });
         }
-    }
 
-    // Save all schedules to backend
-    document.getElementById('save-schedules-btn').addEventListener('click', function () {
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+        // Save all schedules
+        const saveSchedulesBtn = getEl('save-schedules-btn');
+        if (saveSchedulesBtn) {
+            saveSchedulesBtn.addEventListener('click', function () {
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
+                fetch('/api/schedules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(schedules)
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        setStatus('schedule-status', data.message, data.status !== 'success');
+                        if (data.status === 'success') loadSchedulerStatus();
+                    })
+                    .catch(err => setStatus('schedule-status', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = '<i class="bi bi-save"></i> Сохранить все расписания';
+                    });
+            });
+        }
 
-        fetch('/api/schedules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(schedules)
-        })
-            .then(r => r.json())
-            .then(data => {
-                const statusDiv = document.getElementById('schedule-status');
-                if (data.status === 'success') {
-                    statusDiv.innerHTML = '<div class="alert"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
-                    loadSchedulerStatus(); // Reload status to show next run times
-                } else {
-                    statusDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+        // Load Config
+        function loadConfig() {
+            console.log('Loading configuration...');
+            fetch('/api/config').then(r => r.json()).then(data => {
+                if (data.ozon_spreadsheet_url) getEl('google-sheet-url').value = data.ozon_spreadsheet_url;
+                if (data.wb_spreadsheet_url) getEl('google-sheet-url-wb').value = data.wb_spreadsheet_url;
+            }).catch(err => console.error('Config load error:', err));
+
+            fetch('/api/system/settings').then(r => r.json()).then(data => {
+                getEl('sys-db-host').value = data.db_host || '';
+                getEl('sys-db-port').value = data.db_port || '';
+                getEl('sys-db-name').value = data.db_name || '';
+                getEl('sys-db-user').value = data.db_user || '';
+                getEl('sys-chrome-path').value = data.chrome_path || '';
+                getEl('sys-flask-key').value = data.flask_secret_key || '';
+            }).catch(err => console.error('System settings load error:', err));
+
+            fetch('/api/system/update/status').then(r => r.json()).then(data => {
+                const toggle = getEl('auto-update-toggle');
+                if (toggle) toggle.checked = data.auto_update;
+                if (getEl('last-update-check')) getEl('last-update-check').innerText = data.last_check;
+
+                const indicator = getEl('update-indicator');
+                const text = getEl('update-status-text');
+                if (indicator && text) {
+                    if (data.auto_update) {
+                        indicator.classList.add('active');
+                        text.innerText = 'Автообновление активно (каждый час)';
+                    } else {
+                        indicator.classList.remove('active');
+                        text.innerText = 'Автообновление выключено';
+                    }
                 }
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-save"></i> Сохранить все расписания';
-            })
-            .catch(err => {
-                document.getElementById('schedule-status').innerHTML = '<div class="alert alert-danger">Ошибка: ' + err + '</div>';
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-save"></i> Сохранить все расписания';
+            }).catch(err => console.error('Update status load error:', err));
+
+            fetch('/api/telegram/settings').then(r => r.json()).then(data => {
+                if (data.bot_token) getEl('telegram-bot-token').value = data.bot_token;
+                if (data.chat_id) getEl('telegram-chat-id').value = data.chat_id;
+            }).catch(err => console.error('Telegram settings load error:', err));
+        }
+
+        // Save System Settings
+        const saveSysBtn = getEl('save-system-settings-btn');
+        if (saveSysBtn) {
+            saveSysBtn.addEventListener('click', function () {
+                const payload = {
+                    db_host: getEl('sys-db-host').value,
+                    db_port: getEl('sys-db-port').value,
+                    db_name: getEl('sys-db-name').value,
+                    db_user: getEl('sys-db-user').value,
+                    chrome_path: getEl('sys-chrome-path').value,
+                    flask_secret_key: getEl('sys-flask-key').value
+                };
+                const pass = getEl('sys-db-pass').value;
+                if (pass) payload.db_pass = pass;
+
+                this.disabled = true;
+                fetch('/api/system/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('system-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('system-status', 'Ошибка: ' + err, true))
+                    .finally(() => this.disabled = false);
             });
-    });
+        }
 
-    // Load all config from server
-    function loadConfig() {
-        fetch('/api/config')
-            .then(r => r.json())
-            .then(data => {
-                if (data.ozon_spreadsheet_url) document.getElementById('google-sheet-url').value = data.ozon_spreadsheet_url;
-                if (data.wb_spreadsheet_url) document.getElementById('google-sheet-url-wb').value = data.wb_spreadsheet_url;
+        // Save Spreadsheet URLs
+        const saveOzonSheetBtn = getEl('save-sheet-url-btn');
+        if (saveOzonSheetBtn) {
+            saveOzonSheetBtn.addEventListener('click', function () {
+                const url = getEl('google-sheet-url').value;
+                this.disabled = true;
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ozon_spreadsheet_url: url })
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status', 'Ошибка: ' + err, true))
+                    .finally(() => this.disabled = false);
             });
+        }
 
-        fetch('/api/system/settings')
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('sys-db-host').value = data.db_host || '';
-                document.getElementById('sys-db-port').value = data.db_port || '';
-                document.getElementById('sys-db-name').value = data.db_name || '';
-                document.getElementById('sys-db-user').value = data.db_user || '';
-                document.getElementById('sys-chrome-path').value = data.chrome_path || '';
-                document.getElementById('sys-flask-key').value = data.flask_secret_key || '';
+        const saveWbSheetBtn = getEl('save-sheet-url-wb-btn');
+        if (saveWbSheetBtn) {
+            saveWbSheetBtn.addEventListener('click', function () {
+                const url = getEl('google-sheet-url-wb').value;
+                this.disabled = true;
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wb_spreadsheet_url: url })
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-wb', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-wb', 'Ошибка: ' + err, true))
+                    .finally(() => this.disabled = false);
             });
+        }
 
-        fetch('/api/system/update/status')
-            .then(r => r.json())
-            .then(data => {
-                const toggle = document.getElementById('auto-update-toggle');
-                const indicator = document.getElementById('update-indicator');
-                const text = document.getElementById('update-status-text');
-                const lastCheck = document.getElementById('last-update-check');
+        // Update Database
+        const updateOzonBtn = getEl('update-db-btn');
+        if (updateOzonBtn) {
+            updateOzonBtn.addEventListener('click', function () {
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Скрипт запущен...';
+                fetch('/api/database/update', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
+            });
+        }
 
-                toggle.checked = data.auto_update;
-                lastCheck.innerText = data.last_check;
+        const updateWbBtn = getEl('update-db-wb-btn');
+        if (updateWbBtn) {
+            updateWbBtn.addEventListener('click', function () {
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Скрипт запущен...';
+                fetch('/api/database/update_wb', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-wb', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-wb', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
+            });
+        }
 
-                if (data.auto_update) {
-                    indicator.classList.add('active');
-                    text.innerText = 'Автообновление активно (каждый час)';
-                } else {
-                    indicator.classList.remove('active');
-                    text.innerText = 'Автообновление выключено';
+        // Clear OZON Database
+        const clearOzonBtn = getEl('clear-db-ozon-btn');
+        if (clearOzonBtn) {
+            clearOzonBtn.addEventListener('click', function () {
+                if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ данные OZON из таблицы. Продолжить?')) {
+                    return;
                 }
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Очистка...';
+                fetch('/api/database/clear_ozon', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
             });
+        }
 
-        fetch('/api/telegram/settings')
-            .then(r => r.json())
-            .then(data => {
-                if (data.bot_token) document.getElementById('telegram-bot-token').value = data.bot_token;
-                if (data.chat_id) document.getElementById('telegram-chat-id').value = data.chat_id;
-            });
-    }
-
-    // System Settings - Save
-    document.getElementById('save-system-settings-btn').addEventListener('click', function () {
-        const payload = {
-            db_host: document.getElementById('sys-db-host').value,
-            db_port: document.getElementById('sys-db-port').value,
-            db_name: document.getElementById('sys-db-name').value,
-            db_user: document.getElementById('sys-db-user').value,
-            chrome_path: document.getElementById('sys-chrome-path').value,
-            flask_secret_key: document.getElementById('sys-flask-key').value
-        };
-        const pass = document.getElementById('sys-db-pass').value;
-        if (pass) payload.db_pass = pass;
-
-        this.disabled = true;
-        fetch('/api/system/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('system-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
-                this.disabled = false;
-            });
-    });
-
-    // Auto-update Toggle
-    document.getElementById('auto-update-toggle').addEventListener('change', function () {
-        const enabled = this.checked;
-        fetch('/api/system/update/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled: enabled })
-        })
-            .then(r => r.json())
-            .then(data => {
-                const indicator = document.getElementById('update-indicator');
-                const text = document.getElementById('update-status-text');
-                if (enabled) {
-                    indicator.classList.add('active');
-                    text.innerText = 'Автообновление активно (каждый час)';
-                } else {
-                    indicator.classList.remove('active');
-                    text.innerText = 'Автообновление выключено';
+        // Clear WB Database
+        const clearWbBtn = getEl('clear-db-wb-btn');
+        if (clearWbBtn) {
+            clearWbBtn.addEventListener('click', function () {
+                if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ данные Wildberries из таблицы. Продолжить?')) {
+                    return;
                 }
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Очистка...';
+                fetch('/api/database/clear_wb', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-wb', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-wb', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
             });
-    });
+        }
 
-    // Save Google Sheet URL (OZON)
-    document.getElementById('save-sheet-url-btn').addEventListener('click', function () {
-        const url = document.getElementById('google-sheet-url').value;
-        this.disabled = true;
-        fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ozon_spreadsheet_url: url })
-        })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('db-status').innerHTML = `<div class="alert">${data.message}</div>`;
-                this.disabled = false;
+        // Telegram Save
+        const saveTgBtn = getEl('save-telegram-settings-btn');
+        if (saveTgBtn) {
+            saveTgBtn.addEventListener('click', function () {
+                const payload = {
+                    bot_token: getEl('telegram-bot-token').value,
+                    chat_id: getEl('telegram-chat-id').value
+                };
+                this.disabled = true;
+                fetch('/api/telegram/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('tg-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('tg-status', 'Ошибка: ' + err, true))
+                    .finally(() => this.disabled = false);
             });
-    });
+        }
 
-    // Save Google Sheet URL (WB)
-    document.getElementById('save-sheet-url-wb-btn').addEventListener('click', function () {
-        const url = document.getElementById('google-sheet-url-wb').value;
-        this.disabled = true;
-        fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wb_spreadsheet_url: url })
-        })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('db-status-wb').innerHTML = `<div class="alert">${data.message}</div>`;
-                this.disabled = false;
+        // Auto-update Toggle
+        const updateToggle = getEl('auto-update-toggle');
+        if (updateToggle) {
+            updateToggle.addEventListener('change', function () {
+                const enabled = this.checked;
+                fetch('/api/system/update/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        const indicator = getEl('update-indicator');
+                        const text = getEl('update-status-text');
+                        if (enabled) {
+                            indicator.classList.add('active');
+                            text.innerText = 'Автообновление активно (каждый час)';
+                        } else {
+                            indicator.classList.remove('active');
+                            text.innerText = 'Автообновление выключено';
+                        }
+                    })
+                    .catch(err => console.error('Toggle error:', err));
             });
-    });
+        }
 
-    // Update Database (OZON)
-    document.getElementById('update-db-btn').addEventListener('click', function () {
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
-        fetch('/api/database/update', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('db-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать OZON';
+        // Test DB Connection
+        const testDbBtn = getEl('test-db-connection-btn');
+        if (testDbBtn) {
+            testDbBtn.addEventListener('click', function () {
+                const payload = {
+                    db_host: getEl('sys-db-host').value,
+                    db_port: getEl('sys-db-port').value,
+                    db_name: getEl('sys-db-name').value,
+                    db_user: getEl('sys-db-user').value,
+                    db_pass: getEl('sys-db-pass').value
+                };
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Проверка...';
+                fetch('/api/database/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('system-status', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('system-status', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
             });
-    });
+        }
 
-    // Update Database (WB)
-    document.getElementById('update-db-wb-btn').addEventListener('click', function () {
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
-        fetch('/api/database/update_wb', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('db-status-wb').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать WB';
+        // Key generation
+        const genKeyBtn = getEl('generate-key-btn');
+        if (genKeyBtn) {
+            genKeyBtn.addEventListener('click', () => {
+                const chars = 'abcdef0123456789';
+                let key = '';
+                for (let i = 0; i < 64; i++) key += chars[Math.floor(Math.random() * chars.length)];
+                getEl('sys-flask-key').value = key;
             });
+        }
+
+        // Initial load
+        loadSchedules();
+        loadConfig();
     });
-
-    // Telegram Settings - Save
-    document.getElementById('save-telegram-settings-btn').addEventListener('click', function () {
-        const payload = {
-            bot_token: document.getElementById('telegram-bot-token').value,
-            chat_id: document.getElementById('telegram-chat-id').value
-        };
-        this.disabled = true;
-        fetch('/api/telegram/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('tg-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
-                this.disabled = false;
-            });
-    });
-
-    // System Settings - Test DB
-    document.getElementById('test-db-connection-btn').addEventListener('click', function () {
-        const payload = {
-            db_host: document.getElementById('sys-db-host').value,
-            db_port: document.getElementById('sys-db-port').value,
-            db_name: document.getElementById('sys-db-name').value,
-            db_user: document.getElementById('sys-db-user').value,
-            db_pass: document.getElementById('sys-db-pass').value
-        };
-
-        this.disabled = true;
-        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Проверка...';
-
-        fetch('/api/database/test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('system-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-database-check"></i> Проверить БД';
-            });
-    });
-
-    // Key generation
-    document.getElementById('generate-key-btn').addEventListener('click', () => {
-        const chars = 'abcdef0123456789';
-        let key = '';
-        for (let i = 0; i < 64; i++) key += chars[Math.floor(Math.random() * chars.length)];
-        document.getElementById('sys-flask-key').value = key;
-    });
-
-    // Load data on page load
-    loadSchedules();
-    loadConfig();
 </script>
 {% endblock %}

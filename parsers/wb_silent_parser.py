@@ -1,4 +1,9 @@
-import os, sys, time, random, json, re, threading, requests
+import os, sys, time, random, json, re, threading, requests, io, shutil
+# Force UTF-8 encoding for stdout and stderr to handle emojis and Russian text
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import undetected_chromedriver as uc
 from dotenv import load_dotenv
 import psycopg2
@@ -6,8 +11,30 @@ from datetime import datetime
 
 load_dotenv()
 
+def find_chrome():
+    """Find chrome executable automatically"""
+    env_path = os.getenv('CHROME_PATH')
+    if env_path and os.path.exists(env_path):
+        return env_path
+        
+    # Common Windows paths
+    paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+            
+    # Check PATH
+    path_chrome = shutil.which('chrome')
+    if path_chrome:
+        return path_chrome
+        
+    return "chrome.exe" # Fallback to default
+
 # --- Config ---
-CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+CHROME_PATH = find_chrome()
 WB_INTERNAL_API = "https://www.wildberries.ru/__internal/u-card/cards/v4/detail"
 DB_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 
@@ -32,11 +59,14 @@ class WildberriesSilentParser:
 
     def warmup(self):
         """Warmup session to get fresh tokens."""
+        print(f"[SILENT] Using Chrome at: {CHROME_PATH}")
         print("[SILENT] Starting browser session to get WB tokens...")
+        
         options = uc.ChromeOptions()
         options.binary_location = CHROME_PATH
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--no-sandbox")
+        options.add_argument("--lang=ru-RU")
         
         # Setup proxy for warmup if available
         proxy_dir = os.path.abspath(os.path.join(os.getcwd(), "proxies"))
@@ -52,7 +82,15 @@ class WildberriesSilentParser:
 
         driver = None
         try:
-            driver = uc.Chrome(options=options, browser_executable_path=CHROME_PATH)
+            # Random port like in Ozon to avoid conflicts
+            port = random.randint(9300, 9500)
+            driver = uc.Chrome(
+                options=options, 
+                browser_executable_path=CHROME_PATH,
+                driver_executable_path=None,
+                port=port,
+                suppress_welcome=True
+            )
             driver.set_page_load_timeout(30)
             driver.get("https://www.wildberries.ru")
             time.sleep(10)
