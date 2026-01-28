@@ -240,7 +240,8 @@ def update_database():
         if not url:
             url = config.get('ozon_spreadsheet_url')
             
-        cmd = ['python', 'import_from_sheets.py']
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'import_from_sheets.py')
+        cmd = [sys.executable, script_path]
         if url: cmd.append(url)
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -266,7 +267,8 @@ def update_database_wb():
         if not url:
             url = config.get('wb_spreadsheet_url')
             
-        cmd = ['python', 'import_wb_from_sheets.py']
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'import_wb_from_sheets.py')
+        cmd = [sys.executable, script_path]
         if url: cmd.append(url)
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -389,6 +391,54 @@ def save_system_settings():
             
         load_dotenv(override=True)
         return jsonify({'status': 'success', 'message': 'Системные настройки сохранены'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/telegram/settings', methods=['GET'])
+@login_required
+@permission_required('can_view_settings')
+def get_telegram_settings():
+    """Get telegram settings from environment"""
+    return jsonify({
+        'bot_token': os.getenv('TG_BOT_TOKEN', ''),
+        'chat_id': os.getenv('TG_CHAT_ID', '')
+    })
+
+@app.route('/api/telegram/settings', methods=['POST'])
+@login_required
+@permission_required('can_edit_database_settings')
+def save_telegram_settings():
+    """Save telegram settings to .env file"""
+    try:
+        data = request.json
+        env_path = '.env'
+        env_lines = []
+        
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                env_lines = f.readlines()
+        
+        keys_to_update = {
+            'TG_BOT_TOKEN': data.get('bot_token'),
+            'TG_CHAT_ID': data.get('chat_id')
+        }
+        
+        updated_keys = set()
+        for i, line in enumerate(env_lines):
+            for key, value in keys_to_update.items():
+                if line.startswith(f'{key}='):
+                    env_lines[i] = f'{key}={value}\n'
+                    updated_keys.add(key)
+        
+        for key, value in keys_to_update.items():
+            if key not in updated_keys:
+                env_lines.append(f'{key}={value}\n')
+        
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(env_lines)
+            
+        load_dotenv(override=True)
+        return jsonify({'status': 'success', 'message': 'Настройки Telegram сохранены'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 

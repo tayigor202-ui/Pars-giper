@@ -93,6 +93,30 @@
             </div>
         </div>
     </div>
+
+    <div class="col-md-6">
+        <div class="main-card h-100 reveal" style="animation-delay: 0.35s">
+            <div class="card-header">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-telegram text-neon-cyan"></i> Telegram Уведомления</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-robot"></i> Bot Token</label>
+                    <input type="text" class="form-control" id="telegram-bot-token" placeholder="123456789:ABCDEF...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-chat-dots"></i> Chat ID</label>
+                    <input type="text" class="form-control" id="telegram-chat-id" placeholder="-100123456789">
+                </div>
+
+                <button class="btn btn-premium w-100" id="save-telegram-settings-btn">
+                    <i class="bi bi-save"></i> Сохранить настройки Telegram
+                </button>
+
+                <div id="tg-status" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="row mt-4">
@@ -471,10 +495,10 @@
                 const indicator = document.getElementById('update-indicator');
                 const text = document.getElementById('update-status-text');
                 const lastCheck = document.getElementById('last-update-check');
-                
+
                 toggle.checked = data.auto_update;
                 lastCheck.innerText = data.last_check;
-                
+
                 if (data.auto_update) {
                     indicator.classList.add('active');
                     text.innerText = 'Автообновление активно (каждый час)';
@@ -519,25 +543,102 @@
     });
 
     // Auto-update Toggle
-    document.getElementById('auto-update-toggle').addEventListener('change', function() {
+    document.getElementById('auto-update-toggle').addEventListener('change', function () {
         const enabled = this.checked;
         fetch('/api/system/update/toggle', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({enabled: enabled})
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: enabled })
         })
-        .then(r => r.json())
-        .then(data => {
-            const indicator = document.getElementById('update-indicator');
-            const text = document.getElementById('update-status-text');
-            if (enabled) {
-                indicator.classList.add('active');
-                text.innerText = 'Автообновление активно (каждый час)';
-            } else {
-                indicator.classList.remove('active');
-                text.innerText = 'Автообновление выключено';
-            }
-        });
+            .then(r => r.json())
+            .then(data => {
+                const indicator = document.getElementById('update-indicator');
+                const text = document.getElementById('update-status-text');
+                if (enabled) {
+                    indicator.classList.add('active');
+                    text.innerText = 'Автообновление активно (каждый час)';
+                } else {
+                    indicator.classList.remove('active');
+                    text.innerText = 'Автообновление выключено';
+                }
+            });
+    });
+
+    // Save Google Sheet URL (OZON)
+    document.getElementById('save-sheet-url-btn').addEventListener('click', function () {
+        const url = document.getElementById('google-sheet-url').value;
+        this.disabled = true;
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ozon_spreadsheet_url: url })
+        })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('db-status').innerHTML = `<div class="alert">${data.message}</div>`;
+                this.disabled = false;
+            });
+    });
+
+    // Save Google Sheet URL (WB)
+    document.getElementById('save-sheet-url-wb-btn').addEventListener('click', function () {
+        const url = document.getElementById('google-sheet-url-wb').value;
+        this.disabled = true;
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wb_spreadsheet_url: url })
+        })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('db-status-wb').innerHTML = `<div class="alert">${data.message}</div>`;
+                this.disabled = false;
+            });
+    });
+
+    // Update Database (OZON)
+    document.getElementById('update-db-btn').addEventListener('click', function () {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
+        fetch('/api/database/update', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('db-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать OZON';
+            });
+    });
+
+    // Update Database (WB)
+    document.getElementById('update-db-wb-btn').addEventListener('click', function () {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Запуск...';
+        fetch('/api/database/update_wb', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('db-status-wb').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-repeat"></i> Импортировать WB';
+            });
+    });
+
+    // Telegram Settings - Save
+    document.getElementById('save-telegram-settings-btn').addEventListener('click', function () {
+        const payload = {
+            bot_token: document.getElementById('telegram-bot-token').value,
+            chat_id: document.getElementById('telegram-chat-id').value
+        };
+        this.disabled = true;
+        fetch('/api/telegram/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('tg-status').innerHTML = `<div class="alert ${data.status === 'success' ? '' : 'alert-danger'}">${data.message}</div>`;
+                this.disabled = false;
+            });
     });
 
     // System Settings - Test DB
