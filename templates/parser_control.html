@@ -27,6 +27,15 @@
                 </button>
             </div>
 
+            <hr class="border-secondary opacity-25 my-4">
+
+            <h3 class="h5 mb-3 fw-bold">Система</h3>
+            <div class="d-grid gap-3">
+                <button id="git-pull-btn" class="btn btn-outline-info py-2 border-2 rounded-4">
+                    <i class="bi bi-cloud-arrow-down-fill me-2"></i> Обновить из Git
+                </button>
+            </div>
+
             <div id="status-message" class="mt-auto"></div>
         </div>
     </div>
@@ -75,6 +84,28 @@
         fetch('/api/parser/stop', { method: 'POST' })
             .then(r => r.json())
             .then(data => addLog(data.message, 'WARNING'));
+    });
+
+    document.getElementById('git-pull-btn').addEventListener('click', function () {
+        addLog('Запуск обновления из Git (git pull)...');
+        const btn = this;
+        btn.disabled = true;
+
+        fetch('/api/git/pull', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
+                if (data.output) {
+                    addLog('Вывод Git:');
+                    data.output.split('\n').filter(line => line.trim()).forEach(line => {
+                        addLog(`> ${line}`, 'DEBUG');
+                    });
+                }
+            })
+            .catch(err => addLog('Ошибка сети: ' + err, 'ERROR'))
+            .finally(() => {
+                btn.disabled = false;
+            });
     });
 </script>
 {% endblock %}

@@ -19,7 +19,11 @@ if not exist ".env" (
     exit /b 1
 )
 
-echo Запуск веб-сервера...
+echo Проверка обновлений в репозитории Git...
+git pull origin main
+echo.
+
+echo Запуск веб-серера...
 echo.
 echo Веб-интерфейс будет доступен по адресу:
 echo     http://localhost:3455

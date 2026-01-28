@@ -183,6 +183,19 @@ def start_parser():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/api/git/pull', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def git_pull():
+    try:
+        # Execute git pull
+        output = subprocess.check_output(['git', 'pull', 'origin', 'main'], stderr=subprocess.STDOUT, text=True)
+        return jsonify({'status': 'success', 'message': 'Обновление успешно!', 'output': output})
+    except subprocess.CalledProcessError as e:
+        return jsonify({'status': 'error', 'message': 'Ошибка Git Pull', 'output': e.output})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Системная ошибка: {str(e)}'})
+
 @app.route('/api/parser/stop', methods=['POST'])
 @login_required
 @permission_required('can_run_parser')
