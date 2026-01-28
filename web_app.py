@@ -8,8 +8,8 @@ import bcrypt
 from dotenv import load_dotenv
 import subprocess
 import threading
-import scheduler
-from user_management import UserManager
+import core.scheduler as scheduler
+from core.user_management import UserManager
 from functools import wraps
 import pandas as pd
 import io
@@ -56,11 +56,11 @@ def load_user(user_id):
     """Load user from database by ID"""
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME', 'ParserOzon'),
-            user=os.getenv('DB_USER', 'GiperBox'),
-            password=os.getenv('DB_PASS', 'Gingerik83'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432')
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         cur = conn.cursor()
         cur.execute("""
@@ -174,12 +174,19 @@ def settings():
 @permission_required('can_run_parser')
 def start_parser():
     try:
-        # Start run_all.bat in separate window with absolute path
-        bat_file = os.path.join(ROOT_DIR, 'run_all.bat')
-        # Improved command for Windows start - /c means close window after completion
-        cmd = f'start "OZON Parser" cmd /c "{bat_file}"'
+        data = request.json or {}
+        platform = data.get('platform', 'ozon')
+        
+        if platform == 'ozon':
+            script_path = os.path.join(ROOT_DIR, 'parsers', 'ozon_parser_production_final.py')
+            name = "OZON Parser"
+        else:
+            script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
+            name = "WB Parser"
+            
+        cmd = f'start "{name}" cmd /c "{sys.executable} {script_path}"'
         subprocess.Popen(cmd, cwd=ROOT_DIR, shell=True)
-        return jsonify({'status': 'success', 'message': 'Парсинг OZON запущен'})
+        return jsonify({'status': 'success', 'message': f'Парсинг {platform.upper()} запущен'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -188,13 +195,10 @@ def start_parser():
 @permission_required('can_run_parser')
 def git_pull():
     try:
-        # Execute git pull
-        output = subprocess.check_output(['git', 'pull', 'origin', 'main'], stderr=subprocess.STDOUT, text=True)
-        return jsonify({'status': 'success', 'message': 'Обновление успешно!', 'output': output})
-    except subprocess.CalledProcessError as e:
-        return jsonify({'status': 'error', 'message': 'Ошибка Git Pull', 'output': e.output})
+        subprocess.run(['git', 'pull', 'origin', 'main'], check=True, capture_output=True)
+        return jsonify({'status': 'success', 'message': 'Проект успешно обновлен из Git'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Системная ошибка: {str(e)}'})
+        return jsonify({'status': 'error', 'message': str(e)})
 
 @app.route('/api/parser/stop', methods=['POST'])
 @login_required
@@ -295,47 +299,58 @@ def save_config_api():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# TEMPORARY: Force update endpoint without auth (REMOVE IN PRODUCTION!)
-@app.route('/api/config/force_update', methods=['POST'])
-def force_update_config_api():
-    """TEMPORARY endpoint to update config without auth - for debugging only!"""
-    try:
-        new_config = request.json
-        current_config = load_config()
-        current_config.update(new_config)
-        save_config(current_config)
-        return jsonify({'status': 'success', 'message': 'Config updated (NO AUTH)', 'config': current_config})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-# Telegram Settings API
-@app.route('/api/telegram/settings', methods=['GET'])
+@app.route('/api/system/update/status', methods=['GET'])
 @login_required
 @permission_required('can_view_settings')
-def get_telegram_settings():
-    """Get Telegram settings from .env"""
+def get_update_status():
+    """Get status of auto-updater"""
+    config = load_config()
+    return jsonify({
+        'auto_update': config.get('auto_update', False),
+        'last_check': config.get('last_update_check', 'Никогда')
+    })
+
+@app.route('/api/system/update/toggle', methods=['POST'])
+@login_required
+@permission_required('can_edit_database_settings')
+def toggle_auto_update():
+    """Enable/disable auto-updater"""
     try:
-        return jsonify({
-            'bot_token': os.getenv('TG_BOT_TOKEN', ''),
-            'chat_id': os.getenv('TG_CHAT_ID', '')
-        })
+        data = request.json
+        enabled = data.get('enabled', False)
+        config = load_config()
+        config['auto_update'] = enabled
+        save_config(config)
+        
+        # We don't dynamically remove the job from scheduler here to keep it simple,
+        # the check_git_updates function will check the config before running its logic
+        # OR we can just update the job status if needed.
+        
+        return jsonify({'status': 'success', 'message': f'Автообновление {"включено" if enabled else "выключено"}'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/telegram/settings', methods=['POST'])
+@app.route('/api/system/settings', methods=['GET'])
+@login_required
+@permission_required('can_view_settings')
+def get_system_settings():
+    """Get system settings from environment"""
+    return jsonify({
+        'db_host': os.getenv('DB_HOST', 'localhost'),
+        'db_port': os.getenv('DB_PORT', '5432'),
+        'db_name': os.getenv('DB_NAME', 'ParserOzon'),
+        'db_user': os.getenv('DB_USER', 'postgres'),
+        'chrome_path': os.getenv('CHROME_PATH', ''),
+        'flask_secret_key': os.getenv('FLASK_SECRET_KEY', '')
+    })
+
+@app.route('/api/system/settings', methods=['POST'])
 @login_required
 @permission_required('can_edit_database_settings')
-def save_telegram_settings():
-    """Save Telegram settings to .env file"""
+def save_system_settings():
+    """Save system settings to .env file"""
     try:
         data = request.json
-        bot_token = data.get('bot_token', '').strip()
-        chat_id = data.get('chat_id', '').strip()
-        
-        if not bot_token or not chat_id:
-            return jsonify({'status': 'error', 'message': 'Bot Token и Chat ID обязательны'}), 400
-        
-        # Read current .env file
         env_path = '.env'
         env_lines = []
         
@@ -343,114 +358,60 @@ def save_telegram_settings():
             with open(env_path, 'r', encoding='utf-8') as f:
                 env_lines = f.readlines()
         
-        # Update or add TG_BOT_TOKEN and TG_CHAT_ID
-        updated_bot_token = False
-        updated_chat_id = False
+        # Keys to update
+        keys_to_update = {
+            'DB_HOST': data.get('db_host'),
+            'DB_PORT': data.get('db_port'),
+            'DB_NAME': data.get('db_name'),
+            'DB_USER': data.get('db_user'),
+            'DB_PASS': data.get('db_pass'),
+            'CHROME_PATH': data.get('chrome_path'),
+            'FLASK_SECRET_KEY': data.get('flask_secret_key')
+        }
         
+        # Remove None values (if password was not provided)
+        keys_to_update = {k: v for k, v in keys_to_update.items() if v is not None}
+        
+        updated_keys = set()
         for i, line in enumerate(env_lines):
-            if line.startswith('TG_BOT_TOKEN='):
-                env_lines[i] = f'TG_BOT_TOKEN={bot_token}\n'
-                updated_bot_token = True
-            elif line.startswith('TG_CHAT_ID='):
-                env_lines[i] = f'TG_CHAT_ID={chat_id}\n'
-                updated_chat_id = True
+            for key, value in keys_to_update.items():
+                if line.startswith(f'{key}='):
+                    env_lines[i] = f'{key}={value}\n'
+                    updated_keys.add(key)
         
-        # Add if not found
-        if not updated_bot_token:
-            env_lines.append(f'TG_BOT_TOKEN={bot_token}\n')
-        if not updated_chat_id:
-            env_lines.append(f'TG_CHAT_ID={chat_id}\n')
+        # Add missing keys
+        for key, value in keys_to_update.items():
+            if key not in updated_keys:
+                env_lines.append(f'{key}={value}\n')
         
-        # Write back to .env
         with open(env_path, 'w', encoding='utf-8') as f:
             f.writelines(env_lines)
-        
-        # Reload environment variables
+            
         load_dotenv(override=True)
-        
-        return jsonify({'status': 'success', 'message': 'Настройки Telegram сохранены в .env'})
+        return jsonify({'status': 'success', 'message': 'Системные настройки сохранены'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/telegram/test', methods=['POST'])
+@app.route('/api/database/test', methods=['POST'])
 @login_required
-@permission_required('can_view_settings')
-def test_telegram_connection():
-    """Test Telegram bot connection and send test message"""
+@permission_required('can_edit_database_settings')
+def test_database_connection():
+    """Test database connection with provided params"""
     try:
-        import requests
-        
         data = request.json
-        bot_token = data.get('bot_token', '').strip()
-        chat_id = data.get('chat_id', '').strip()
-        
-        if not bot_token or not chat_id:
-            return jsonify({'status': 'error', 'message': 'Bot Token и Chat ID обязательны'}), 400
-        
-        # Test 1: Check bot
-        bot_url = f'https://api.telegram.org/bot{bot_token}/getMe'
-        bot_response = requests.get(bot_url, timeout=10)
-        
-        if bot_response.status_code != 200:
-            return jsonify({'status': 'error', 'message': f'Ошибка бота: HTTP {bot_response.status_code}'}), 400
-        
-        bot_result = bot_response.json()
-        if not bot_result.get('ok'):
-            return jsonify({'status': 'error', 'message': f'Неверный Bot Token: {bot_result.get("description", "Unknown error")}'}), 400
-        
-        bot_info = bot_result.get('result', {})
-        
-        # Test 2: Check chat access
-        chat_url = f'https://api.telegram.org/bot{bot_token}/getChat'
-        chat_response = requests.get(chat_url, params={'chat_id': chat_id}, timeout=10)
-        
-        chat_info = None
-        if chat_response.status_code == 200:
-            chat_result = chat_response.json()
-            if chat_result.get('ok'):
-                chat_info = chat_result.get('result', {})
-        
-        # Test 3: Send test message
-        send_url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
-        send_data = {
-            'chat_id': chat_id,
-            'text': '🧪 Тестовое сообщение от парсера\n\n✅ Подключение к Telegram работает корректно!'
-        }
-        send_response = requests.post(send_url, data=send_data, timeout=10)
-        
-        if send_response.status_code != 200:
-            return jsonify({
-                'status': 'error',
-                'message': f'Не удалось отправить сообщение: {send_response.text}'
-            }), 400
-        
-        send_result = send_response.json()
-        if not send_result.get('ok'):
-            return jsonify({
-                'status': 'error',
-                'message': f'Ошибка отправки: {send_result.get("description", "Unknown error")}'
-            }), 400
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Подключение успешно, тестовое сообщение отправлено',
-            'bot_info': {
-                'name': bot_info.get('first_name', ''),
-                'username': bot_info.get('username', ''),
-                'id': bot_info.get('id', '')
-            },
-            'chat_info': {
-                'title': chat_info.get('title', chat_info.get('first_name', 'Personal Chat')) if chat_info else 'Unknown',
-                'id': chat_info.get('id', chat_id) if chat_info else chat_id
-            } if chat_info else None
-        })
-        
-    except requests.exceptions.Timeout:
-        return jsonify({'status': 'error', 'message': 'Превышено время ожидания ответа от Telegram'}), 500
-    except requests.exceptions.RequestException as e:
-        return jsonify({'status': 'error', 'message': f'Ошибка сети: {str(e)}'}), 500
+        conn = psycopg2.connect(
+            host=data.get('db_host'),
+            port=data.get('db_port'),
+            dbname=data.get('db_name'),
+            user=data.get('db_user'),
+            password=data.get('db_pass')
+        )
+        conn.close()
+        return jsonify({'status': 'success', 'message': 'Подключение к базе данных успешно'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'status': 'error', 'message': f'Ошибка подключения: {str(e)}'})
+
+@app.route('/api/dashboard/stats', methods=['GET'])
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 @login_required  
@@ -458,11 +419,11 @@ def dashboard_stats():
     platform = request.args.get('platform', 'ozon')
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME', 'ParserOzon'),
-            user=os.getenv('DB_USER', 'GiperBox'),
-            password=os.getenv('DB_PASS', 'Gingerik83'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432')
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
@@ -519,11 +480,11 @@ def dashboard_chart():
     platform = request.args.get('platform', 'ozon')
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME', 'ParserOzon'),
-            user=os.getenv('DB_USER', 'GiperBox'),
-            password=os.getenv('DB_PASS', 'Gingerik83'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432')
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
@@ -567,11 +528,11 @@ def dashboard_items():
     
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME', 'ParserOzon'),
-            user=os.getenv('DB_USER', 'GiperBox'),
-            password=os.getenv('DB_PASS', 'Gingerik83'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432')
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         cur = conn.cursor()
@@ -666,11 +627,11 @@ def dashboard_export():
     
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME', 'ParserOzon'),
-            user=os.getenv('DB_USER', 'GiperBox'),
-            password=os.getenv('DB_PASS', 'Gingerik83'),
-            host=os.getenv('DB_HOST', 'localhost'),
-            port=os.getenv('DB_PORT', '5432')
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASS'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         table = 'wb_prices' if platform == 'wb' else 'prices'
         

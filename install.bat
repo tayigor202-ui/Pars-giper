@@ -22,32 +22,13 @@ echo [OK] Python найден
 python --version
 echo.
 
-REM Check if PostgreSQL is installed
-psql --version >nul 2>&1
-if errorlevel 1 (
-    echo [ПРЕДУПРЕЖДЕНИЕ] PostgreSQL не найден в PATH
-    echo.
-    echo Если PostgreSQL установлен, добавьте его в PATH:
-    echo C:\Program Files\PostgreSQL\15\bin
-    echo.
-    echo Если не установлен, скачайте:
-    echo https://www.postgresql.org/download/windows/
-    echo.
-    set /p continue="Продолжить установку? (y/n): "
-    if /i not "%continue%"=="y" exit /b 1
-) else (
-    echo [OK] PostgreSQL найден
-    psql --version
-)
-
-echo.
 echo ======================================================================
-echo Запуск автоматической установки...
+echo Запуск автоматической установки (Zero-Touch Deployment)
 echo ======================================================================
 echo.
 
-REM Run setup.py
-python setup.py
+REM Run setup.py - you can add --silent here if you want it completely non-iREM Run setup.py
+python setup\setup.py %*
 
 if errorlevel 1 (
     echo.

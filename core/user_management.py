@@ -11,14 +11,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database connection
+# DB_URL is now constructed from individual components, or directly used if provided.
+# The connection string is built dynamically, ensuring all components are read from environment variables.
+DB_USER = os.getenv('DB_USER')
+DB_PASS = os.getenv('DB_PASS')
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = os.getenv('DB_PORT')
+DB_NAME = os.getenv('DB_NAME')
+
+# Prioritize a full DB_URL if provided, otherwise construct from individual components
 DB_URL = os.getenv('DB_URL')
 if not DB_URL:
-    DB_USER = os.getenv('DB_USER', 'GiperBox')
-    DB_PASS = os.getenv('DB_PASS', 'Gingerik83')
-    DB_HOST = os.getenv('DB_HOST', 'localhost')
-    DB_PORT = os.getenv('DB_PORT', '5432')
-    DB_NAME = os.getenv('DB_NAME', 'ParserOzon')
-    DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    if all([DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME]):
+        DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    else:
+        # If individual components are also missing, DB_URL remains None,
+        # and psycopg2.connect will raise an error if called without a valid connection string.
+        DB_URL = None
 
 class UserManager:
     """User management operations"""

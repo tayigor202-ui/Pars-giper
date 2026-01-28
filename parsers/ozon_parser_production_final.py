@@ -67,10 +67,43 @@ def get_timezone_for_ip(ip):
     return ip_timezone_cache[ip]
 
 
-DB_URL=f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-TG_BOT_TOKEN=os.getenv('TG_BOT_TOKEN')
-TG_CHAT_ID=os.getenv('TG_CHAT_ID')
-CHROME_PATH=r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+import shutil
+
+def find_chrome():
+    """Find chrome executable automatically"""
+    env_path = os.getenv('CHROME_PATH')
+    if env_path and os.path.exists(env_path):
+        return env_path
+        
+    # Common Windows paths
+    paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+            
+    # Check PATH
+    path_chrome = shutil.which('chrome')
+    if path_chrome:
+        return path_chrome
+        
+    return "chrome.exe" # Fallback to default
+
+CHROME_PATH = find_chrome()
+DB_URL = os.getenv('DB_URL')
+if not DB_URL:
+    user = os.getenv('DB_USER')
+    password = os.getenv('DB_PASS')
+    host = os.getenv('DB_HOST')
+    port = os.getenv('DB_PORT')
+    name = os.getenv('DB_NAME')
+    if all([user, password, host, port, name]):
+        DB_URL = f"postgresql://{user}:{password}@{host}:{port}/{name}"
+    else:
+        print("[ERROR] Database environment variables missing!")
+        sys.exit(1)
 DEBUG_PORT_START=9222
 NUM_WORKERS=1
 BATCH_SIZE=180

@@ -71,25 +71,46 @@ def check_python_version():
     print_success("Python версия подходит")
     return True
 
+def find_postgresql():
+    """Try to find PostgreSQL executable in common paths"""
+    # 1. Check PATH
+    try:
+        result = subprocess.run(['psql', '--version'], capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            return "psql"
+    except:
+        pass
+    
+    # 2. Check common Windows paths
+    common_paths = [
+        r"C:\Program Files\PostgreSQL\*\bin\psql.exe",
+        r"C:\Program Files (x86)\PostgreSQL\*\bin\psql.exe"
+    ]
+    for path_pattern in common_paths:
+        matches = glob.glob(path_pattern)
+        if matches:
+            # Get latest version
+            matches.sort(reverse=True)
+            return matches[0]
+            
+    return None
+
 def check_postgresql():
     """Check if PostgreSQL is installed"""
     print_header("ПРОВЕРКА POSTGRESQL")
     
-    # Try to find psql
-    try:
-        result = subprocess.run(['psql', '--version'], capture_output=True, text=True, shell=True)
-        if result.returncode == 0:
-            print_success(f"PostgreSQL установлен: {result.stdout.strip()}")
-            return True
-    except:
-        pass
+    psql_path = find_postgresql()
+    if psql_path:
+        print_success(f"PostgreSQL найден: {psql_path}")
+        return True
     
-    print_warning("PostgreSQL не найден в PATH")
-    print_info("Пожалуйста, установите PostgreSQL:")
-    print_info("  Windows: https://www.postgresql.org/download/windows/")
-    print_info("  Linux: sudo apt-get install postgresql postgresql-contrib")
-    print_info("  macOS: brew install postgresql")
+    print_warning("PostgreSQL не найден в PATH или стандартных папках")
+    print_info("Проект требует PostgreSQL для хранения данных.")
+    print_info("Пожалуйста, установите его с официального сайта: https://www.enterprisedb.com/downloads/postgres-postgresql-downloads")
     
+    if os.environ.get('NON_INTERACTIVE'):
+        return False
+        
     response = input("\nPostgreSQL уже установлен? (y/n): ").lower()
     return response == 'y'
 
@@ -119,128 +140,62 @@ def install_python_dependencies():
     
     return success
 
-def create_env_file():
-    """Create .env file with user input"""
+def create_env_file(interactive=True):
+    """Create .env file automatically or with user input"""
     print_header("НАСТРОЙКА .ENV ФАЙЛА")
     
-    if os.path.exists('.env'):
+    if os.path.exists('.env') and interactive:
         response = input(".env файл уже существует. Перезаписать? (y/n): ").lower()
         if response != 'y':
             print_info("Пропускаем создание .env")
             return True
     
-    print_info("Введите параметры подключения к PostgreSQL:")
+    env_data = {
+        'DB_HOST': 'localhost',
+        'DB_PORT': '5432',
+        'DB_NAME': 'ozon_parser',
+        'DB_USER': 'postgres',
+        'DB_PASS': 'postgres' # Default common password
+    }
     
-    env_data = {}
-    
-    # Database settings
-    env_data['DB_HOST'] = input("  DB_HOST [localhost]: ").strip() or 'localhost'
-    env_data['DB_PORT'] = input("  DB_PORT [5432]: ").strip() or '5432'
-    env_data['DB_NAME'] = input("  DB_NAME [ozon_parser]: ").strip() or 'ozon_parser'
-    env_data['DB_USER'] = input("  DB_USER [postgres]: ").strip() or 'postgres'
-    env_data['DB_PASS'] = getpass.getpass("  DB_PASS: ").strip()
+    if interactive and not os.environ.get('NON_INTERACTIVE'):
+        print_info("Введите параметры (Enter для значений по умолчанию):")
+        env_data['DB_HOST'] = input(f"  DB_HOST [{env_data['DB_HOST']}]: ").strip() or env_data['DB_HOST']
+        env_data['DB_PORT'] = input(f"  DB_PORT [{env_data['DB_PORT']}]: ").strip() or env_data['DB_PORT']
+        env_data['DB_NAME'] = input(f"  DB_NAME [{env_data['DB_NAME']}]: ").strip() or env_data['DB_NAME']
+        env_data['DB_USER'] = input(f"  DB_USER [{env_data['DB_USER']}]: ").strip() or env_data['DB_USER']
+        env_data['DB_PASS'] = getpass.getpass(f"  DB_PASS (скрыто): ").strip() or env_data['DB_PASS']
     
     # Flask settings
-    print_info("\nНастройки Flask:")
-    env_data['FLASK_SECRET_KEY'] = input("  FLASK_SECRET_KEY [auto-generated]: ").strip()
-    if not env_data['FLASK_SECRET_KEY']:
-        import secrets
-        env_data['FLASK_SECRET_KEY'] = secrets.token_hex(32)
-        print_info(f"  Сгенерирован ключ: {env_data['FLASK_SECRET_KEY'][:20]}...")
-    
-    # Telegram settings (optional)
-    print_info("\nНастройки Telegram (можно оставить пустыми и настроить позже через UI):")
-    env_data['TG_BOT_TOKEN'] = input("  TG_BOT_TOKEN [пусто]: ").strip() or ''
-    env_data['TG_CHAT_ID'] = input("  TG_CHAT_ID [пусто]: ").strip() or ''
+    import secrets
+    env_data['FLASK_SECRET_KEY'] = secrets.token_hex(32)
     
     # Write .env file
     try:
         with open('.env', 'w', encoding='utf-8') as f:
-            for key, value in env_data.items():
-                f.write(f"{key}={value}\n")
+            f.write("# === AUTO-GENERATED CONFIG ===\n")
+            f.write("# Database Settings\n")
+            for key in ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS']:
+                f.write(f"{key}={env_data[key]}\n")
+            
+            f.write("\n# Flask Settings\n")
+            f.write(f"FLASK_SECRET_KEY={env_data['FLASK_SECRET_KEY']}\n")
+            
+            f.write("\n# Telegram Settings (Configure via UI)\n")
+            f.write(f"TG_BOT_TOKEN=\n")
+            f.write(f"TG_CHAT_ID=\n")
+            
+            f.write("\n# Browser Settings\n")
+            f.write(f"CHROME_PATH=\n")
         
-        print_success(".env файл создан")
+        print_success(".env файл успешно создан")
         return True
     except Exception as e:
         print_error(f"Ошибка создания .env: {e}")
         return False
 
-def create_database():
-    """Create PostgreSQL database"""
-    print_header("СОЗДАНИЕ БАЗЫ ДАННЫХ")
-    
-    # Load .env
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    db_name = os.getenv('DB_NAME', 'ozon_parser')
-    db_user = os.getenv('DB_USER', 'postgres')
-    db_pass = os.getenv('DB_PASS', '')
-    db_host = os.getenv('DB_HOST', 'localhost')
-    db_port = os.getenv('DB_PORT', '5432')
-    
-    print_info(f"Создание базы данных: {db_name}")
-    
-    try:
-        import psycopg2
-        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-        
-        # Connect to postgres database to create new database
-        conn = psycopg2.connect(
-            host=db_host,
-            port=db_port,
-            user=db_user,
-            password=db_pass,
-            database='postgres'
-        )
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        cursor = conn.cursor()
-        
-        # Check if database exists
-        cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = '{db_name}'")
-        exists = cursor.fetchone()
-        
-        if exists:
-            print_warning(f"База данных {db_name} уже существует")
-            response = input("Пересоздать базу данных? (y/n): ").lower()
-            if response == 'y':
-                cursor.execute(f"DROP DATABASE {db_name}")
-                print_info(f"База данных {db_name} удалена")
-                cursor.execute(f"CREATE DATABASE {db_name}")
-                print_success(f"База данных {db_name} создана")
-            else:
-                print_info("Используем существующую базу данных")
-        else:
-            cursor.execute(f"CREATE DATABASE {db_name}")
-            print_success(f"База данных {db_name} создана")
-        
-        cursor.close()
-        conn.close()
-        return True
-        
-    except Exception as e:
-        print_error(f"Ошибка создания базы данных: {e}")
-        print_warning("Попробуйте создать базу данных вручную:")
-        print_info(f"  psql -U {db_user} -c 'CREATE DATABASE {db_name};'")
-        return False
-
-def create_database_tables():
-    """Create all database tables"""
-    print_header("СОЗДАНИЕ ТАБЛИЦ БАЗЫ ДАННЫХ")
-    
-    # Check if setup_database_and_users.py exists
-    if os.path.exists('setup_database_and_users.py'):
-        print_info("Запуск setup_database_and_users.py...")
-        success = run_command(
-            f"{sys.executable} setup_database_and_users.py",
-            "Создание таблиц и пользователей"
-        )
-        if success:
-            print_success("Таблицы и пользователи созданы")
-            return True
-    
-    print_error("Файл setup_database_and_users.py не найден")
-    return False
+# create_database and create_database_tables functions are removed as per instructions
+# and replaced by a direct call to setup_database_and_users.py in main().
 
 def create_config_json():
     """Create config.json with default values"""
@@ -308,40 +263,43 @@ def print_final_instructions():
 
 def main():
     """Main setup function"""
+    interactive = not (len(sys.argv) > 1 and sys.argv[1] == '--silent')
+    if not interactive:
+        os.environ['NON_INTERACTIVE'] = '1'
+
     print_header("УСТАНОВКА OZON/WB PARSER")
-    print_info("Этот скрипт автоматически настроит проект\n")
+    print_info("Автоматическая подготовка окружения...\n")
     
-    # Step 1: Check Python version
+    # 1. Check Python
     if not check_python_version():
         sys.exit(1)
     
-    # Step 2: Check PostgreSQL
-    if not check_postgresql():
-        print_error("PostgreSQL требуется для работы проекта")
-        sys.exit(1)
+    # 2. Check PostgreSQL
+    check_postgresql() # Don't exit, maybe user knows what they do
     
-    # Step 3: Install Python dependencies
+    # 3. Install dependencies
     if not install_python_dependencies():
-        print_error("Не удалось установить зависимости")
-        sys.exit(1)
+        print_error("Критическая ошибка при установке зависимостей")
+        # Continue anyway, some might be installed
     
-    # Step 4: Create .env file
-    if not create_env_file():
-        print_error("Не удалось создать .env файл")
-        sys.exit(1)
+    # 4. Create .env
+    create_env_file(interactive=interactive)
     
-    # Step 5: Create database
-    if not create_database():
-        print_warning("База данных не создана, но можно продолжить")
+    # 5. Create Database and Tables
+    print_header("ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ")
+    try:
+        # Run the direct setup script
+        setup_script = os.path.join(os.path.dirname(__file__), 'setup_database_and_users.py')
+        if os.path.exists(setup_script):
+            subprocess.run([sys.executable, setup_script], check=False)
+        else:
+            print_error("Файл setup_database_and_users.py не найден. База данных не инициализирована.")
+    except Exception as e:
+        print_error(f"Ошибка инициализации базы: {e}")
     
-    # Step 6: Create database tables
-    if not create_database_tables():
-        print_warning("Таблицы не созданы, создайте их вручную")
-    
-    # Step 7: Create config.json
+    # 6. Create config.json
     create_config_json()
     
-    # Final instructions
     print_final_instructions()
 
 if __name__ == "__main__":

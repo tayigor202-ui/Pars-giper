@@ -32,10 +32,14 @@ for params in connection_attempts:
         print(f" Failed ({str(e)[:30]})")
 
 if not conn_params:
-    print("\nERROR: Could not connect to PostgreSQL")
-    print("Please provide the correct password for postgres user:")
-    password = input("Password: ")
-    conn_params = {'host': 'localhost', 'port': 5432, 'user': 'postgres', 'password': password}
+    print("\nERROR: Could not connect to PostgreSQL with common credentials")
+    if os.environ.get('NON_INTERACTIVE'):
+        print("NON_INTERACTIVE mode: using 'postgres' as fallback password")
+        conn_params = {'host': 'localhost', 'port': 5432, 'user': 'postgres', 'password': 'postgres'}
+    else:
+        print("Please provide the correct password for postgres user:")
+        password = input("Password: ")
+        conn_params = {'host': 'localhost', 'port': 5432, 'user': 'postgres', 'password': password}
 
 print(f"\nUsing connection: {conn_params['host']}:{conn_params['port']}")
 
