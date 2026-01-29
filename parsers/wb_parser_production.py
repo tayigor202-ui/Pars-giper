@@ -23,6 +23,21 @@ def main():
     print("="*70)
     print(" WILDBERRIES PRODUCTION PARSER (SILENT API ENGINE) ")
     print("="*70)
+    if os.name == 'nt':
+        os.system('title WB Parser (Full)')
+    
+    # Clean up old reports before starting
+    print("[CLEANUP] Removing old WB report files...")
+    try:
+        import glob
+        for old_report in glob.glob("wb_prices_report_*.xlsx"):
+            try:
+                os.remove(old_report)
+                print(f"[CLEANUP] 🗑️ Deleted: {old_report}")
+            except:
+                pass
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Could not clean old reports: {e}")
     
     try:
         run_wb_silent_parsing()

@@ -5,11 +5,14 @@
 {% block content %}
 <div class="row align-items-end mb-4">
     <div class="col-lg-8">
-        <h1 class="page-title">Дашборд</h1>
+        <h1 class="page-title">Дашборд v2.0</h1>
         <p class="page-subtitle">Обзор производительности и детальная аналитика.</p>
     </div>
     <div class="col-lg-4 text-lg-end mb-3">
         <div class="btn-group p-1" style="background: rgba(255,255,255,0.05); border-radius: 14px;">
+            <input type="radio" class="btn-check" name="platform-toggle" id="lemana-btn">
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="lemana-btn">Lemana Pro</label>
+
             <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" checked>
             <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="ozon-btn">Ozon</label>
 
@@ -80,6 +83,69 @@
                         </button>
                     </div>
                 </div>
+                <!-- Lemana Regional Actions -->
+                <div id="lemana-actions" class="d-none d-flex align-items-center gap-2">
+                    <select id="lemana-region-select"
+                        class="form-select form-select-sm rounded-pill bg-dark text-white border-0 px-3"
+                        style="width: 200px;">
+                        <option value="34">Москва и МО</option>
+                        <option value="506">Санкт-Петербург</option>
+                        <option value="505">Краснодар</option>
+                        <option value="508">Новосибирск</option>
+                        <option value="509">Омск</option>
+                        <option value="510">Воронеж</option>
+                        <option value="511">Уфа</option>
+                        <option value="715">Екатеринбург</option>
+                        <option value="716">Волгоград</option>
+                        <option value="539">Красноярск</option>
+                        <option value="1437">Тверь</option>
+                        <option value="1443">Тюмень</option>
+                        <option value="1447">Рязань</option>
+                        <option value="1448">Казань</option>
+                        <option value="2149">Челябинск</option>
+                        <option value="2389">Новокузнецк</option>
+                        <option value="2393">Кемерово</option>
+                        <option value="2397">Барнаул</option>
+                        <option value="2949">Набережные Челны</option>
+                        <option value="3257">Пенза</option>
+                        <option value="3258">Тула</option>
+                        <option value="3372">Ярославль</option>
+                        <option value="3399">Ульяновск</option>
+                        <option value="3402">Тольятти</option>
+                        <option value="3428">Кострома</option>
+                        <option value="3429">Киров</option>
+                        <option value="3439">Саратов</option>
+                        <option value="3752">Ставрополь</option>
+                        <option value="4124">Хабаровск</option>
+                        <option value="4794">Оренбург</option>
+                        <option value="5057">Пермь</option>
+                        <option value="5342">Иркутск</option>
+                        <option value="5343">Петрозаводск</option>
+                        <option value="6048">Калининград</option>
+                        <option value="6062">Курск</option>
+                        <option value="6063">Архангельск</option>
+                        <option value="6395">Саранск</option>
+                        <option value="6466">Нижний Новгород</option>
+                        <option value="6516">Череповец</option>
+                        <option value="6607">Калуга</option>
+                        <option value="6609">Ижевск</option>
+                        <option value="6725">Белгород</option>
+                        <option value="7011">Владикавказ</option>
+                        <option value="7073">Новороссийск</option>
+                        <option value="7138">Владивосток</option>
+                        <option value="7278">Иваново</option>
+                        <option value="7290">Липецк</option>
+                        <option value="7874">Псков</option>
+                        <option value="8157">Сургут</option>
+                        <option value="8232">Клин</option>
+                        <option value="8332">Смоленск</option>
+                        <option value="8492">Наро-Фоминск</option>
+                        <option value="all">Все регионы</option>
+                    </select>
+                    <button id="lemana-targeted-parse-btn" class="btn btn-success btn-sm px-4 rounded-pill fw-bold">
+                        <i class="bi bi-play-fill me-1"></i> Парсинг
+                    </button>
+                </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-light btn-sm px-3 rounded-pill border-opacity-25" type="button"
                         data-bs-toggle="offcanvas" data-bs-target="#offcanvasFilters">
@@ -98,7 +164,12 @@
                     style="--bs-table-bg: transparent; --bs-table-color: white; border-collapse: separate; border-spacing: 0;">
                     <thead style="position: sticky; top: 0; z-index: 20;">
                         <tr id="table-headers" style="background: #0a0b10;">
-                            <th class="ps-4">SKU</th>
+                            <th class="ps-4" style="width: 40px;">
+                                <div class="form-check m-0">
+                                    <input class="form-check-input" type="checkbox" id="select-all-checkbox">
+                                </div>
+                            </th>
+                            <th>SKU</th>
                             <th>Название</th>
                             <th>Продавец</th>
                             <th>Цена с картой</th>
@@ -262,7 +333,10 @@
         const loader = document.getElementById('table-loader');
         loader.classList.remove('d-none');
 
-        const url = `/api/dashboard/items?platform=${platform}&page=${currentPage}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${min_price}&max_price=${max_price}`;
+        const lemanaRegionValue = document.getElementById('lemana-region-select').value;
+        const apiRegion = (currentView === 'matrix' && platform === 'lemana') ? 'all' : lemanaRegionValue;
+        const perPage = (currentView === 'matrix' && platform === 'lemana') ? 1000 : 20;
+        const url = `/api/dashboard/items?platform=${platform}&page=${currentPage}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${min_price}&max_price=${max_price}&lemana_region=${apiRegion}&per_page=${perPage}`;
 
         const tbody = document.getElementById('products-table-body');
         if (!append) {
@@ -314,9 +388,17 @@
 
     function renderListTable(items, append) {
         const thead = document.getElementById('table-headers');
+        const isLemana = currentPlatform === 'lemana';
+
         thead.innerHTML = `
-            <th class="ps-4"><i class="bi bi-hash me-2"></i>SKU</th>
+            <th class="ps-4" style="width: 40px;">
+                <div class="form-check m-0">
+                    <input class="form-check-input" type="checkbox" id="select-all-checkbox">
+                </div>
+            </th>
+            <th><i class="bi bi-hash me-2"></i>SKU</th>
             <th><i class="bi bi-alphabet-uppercase me-2"></i>Название</th>
+            ${isLemana ? '<th><i class="bi bi-geo-alt me-2"></i>Регион</th>' : ''}
             <th><i class="bi bi-shop me-2"></i>Продавец</th>
             <th><i class="bi bi-tag-fill me-2 text-info"></i>${currentPlatform === 'wb' ? 'Промо' : 'Цена с картой'}</th>
             <th><i class="bi bi-wallet2 me-2 text-white-50"></i>${currentPlatform === 'wb' ? 'Цена' : 'Цена без карты'}</th>
@@ -324,17 +406,26 @@
             <th class="pe-4 text-end"><i class="bi bi-clock-history me-2"></i>Обновлено</th>
         `;
 
+        // Re-attach select all listener since we just overwrote it
+        document.getElementById('select-all-checkbox').addEventListener('change', function () {
+            const checkboxes = document.querySelectorAll('.item-checkbox');
+            checkboxes.forEach(cb => cb.checked = this.checked);
+        });
+
         const tbody = document.getElementById('products-table-body');
         if (!append) tbody.innerHTML = '';
 
         if (items.length === 0 && !append) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-secondary">Данные не найдены</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${isLemana ? 9 : 8}" class="text-center py-4 text-secondary">Данные не найдены</td></tr>`;
             return;
         }
 
         items.forEach((item, index) => {
-            const { sku, name, seller, promo, price, old, updated } = item;
-            let sellerClass = currentPlatform === 'wb' ? 'badge-wb' : 'badge-ozon';
+            const { sku, name, seller, promo, price, old, updated, region_name } = item;
+            let sellerClass = 'badge-ozon';
+            if (currentPlatform === 'wb') sellerClass = 'badge-wb';
+            else if (currentPlatform === 'lemana') sellerClass = 'badge-lemana';
+
             if (seller && seller.toLowerCase().includes('холодильник')) sellerClass = 'badge-holod';
 
             const isSpecial = promo && promo !== '---' && !promo.includes('Ошибка') && !promo.includes('закончился');
@@ -350,8 +441,14 @@
 
             tbody.innerHTML += `
                 <tr style="animation: fadeInUp 0.4s ease forwards ${index * 0.05}s; opacity: 0;">
-                    <td class="ps-4"><span class="sku-pill">${sku}</span></td>
+                    <td class="ps-4">
+                        <div class="form-check m-0">
+                            <input class="form-check-input item-checkbox" type="checkbox" value="${sku}">
+                        </div>
+                    </td>
+                    <td>${item.url ? `<a href="${item.url}" target="_blank" class="sku-pill text-decoration-none">${sku}</a>` : `<span class="sku-pill">${sku}</span>`}</td>
                     <td class="fw-bold name-cell" title="${name}">${name}</td>
+                    ${isLemana ? `<td><span class="text-info small fw-bold">${region_name || '---'}</span></td>` : ''}
                     <td><span class="seller-badge ${sellerClass}">${seller}</span></td>
                     <td class="fw-bold price-primary ${isSpecial ? 'text-warning' : ''}">${promo} ${discountBadge}</td>
                     <td class="fw-bold price-secondary">${price}</td>
@@ -363,43 +460,73 @@
     }
 
     function renderMatrixTable(items, append) {
-        // Group items by product
+        const isLemana = currentPlatform === 'lemana';
+        const lemanaRegion = document.getElementById('lemana-region-select').value;
+
+        // Group items by SKU for uniqueness
         const productsMap = {};
         items.forEach(item => {
-            const key = `${item.sp_code}_${item.name}`;
-            if (!productsMap[key]) {
-                productsMap[key] = { name: item.name, sp_code: item.sp_code, sellers: {} };
+            const skuKey = (item.sku || "").trim();
+            if (!skuKey) return;
+
+            if (!productsMap[skuKey]) {
+                productsMap[skuKey] = { sku: skuKey, name: item.name, sp_code: '---', segments: {} };
             }
-            productsMap[key].sellers[item.seller] = { promo: item.promo, sku: item.sku };
+            // Update name and sp_code if we find better values
+            if (item.name && item.name !== '---' && (!productsMap[skuKey].name || productsMap[skuKey].name === '---')) {
+                productsMap[skuKey].name = item.name;
+            }
+            if (item.sp_code && item.sp_code !== '---') {
+                productsMap[skuKey].sp_code = item.sp_code;
+            }
+
+            const segmentKey = (isLemana ? (item.region_name || "").trim() : (item.seller || "").trim());
+            if (segmentKey) {
+                productsMap[skuKey].segments[segmentKey] = { promo: item.promo, sku: item.sku };
+            }
         });
 
-        // Use stores present in current items
-        const currentStores = Array.from(new Set(items.map(i => i.seller))).sort();
+        // Determine Columns - For Lemana Matrix, we ALWAYS show all regions for comparison
+        let columnKeys = [];
+        if (isLemana) {
+            const options = document.querySelectorAll('#lemana-region-select option');
+            options.forEach(opt => {
+                const text = opt.innerText.trim();
+                if (opt.value !== 'all' && text) {
+                    columnKeys.push(text);
+                }
+            });
+        } else {
+            columnKeys = Array.from(new Set(items.map(i => (i.seller || "").trim()))).filter(k => k).sort();
+        }
 
         const thead = document.getElementById('table-headers');
+        const table = document.getElementById('main-data-table');
+        table.style.width = isLemana ? 'auto' : '100%';
+        table.style.tableLayout = 'auto';
         thead.innerHTML = `
-            <th class="ps-4">Наименование</th>
-            <th>СП-КОД</th>
-            ${currentStores.map(s => `<th>${s}</th>`).join('')}
+            <th class="ps-4" style="width: 300px; min-width: 300px;">Наименование</th>
+            <th style="width: 120px; min-width: 120px;">СП-КОД</th>
+            ${columnKeys.map(k => `<th style="min-width: 150px;">${k}</th>`).join('')}
         `;
 
         const tbody = document.getElementById('products-table-body');
         if (!append) tbody.innerHTML = '';
 
         if (Object.keys(productsMap).length === 0 && !append) {
-            tbody.innerHTML = `<tr><td colspan="${currentStores.length + 2}" class="text-center py-4 text-secondary">Данные не найдены</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${columnKeys.length + 2}" class="text-center py-4 text-secondary">Данные не найдены</td></tr>`;
             return;
         }
 
         Object.values(productsMap).forEach((product, index) => {
             let rowHtml = `
                 <tr style="animation: fadeInUp 0.4s ease forwards ${index * 0.05}s; opacity: 0;">
-                    <td class="ps-4 name-cell" style="max-width: 300px;" title="${product.name}">${product.name}</td>
-                    <td><span class="sku-pill" style="color:#22d3ee; border-color: rgba(34,211,238,0.2);">${product.sp_code}</span></td>
+                    <td class="ps-4 name-cell" style="width: 300px; min-width: 300px; max-width: 300px;" title="${product.name}">${product.name}</td>
+                    <td style="width: 120px; min-width: 120px;"><span class="sku-pill" style="color:#22d3ee; border-color: rgba(34,211,238,0.2);">${product.sp_code}</span></td>
             `;
 
-            currentStores.forEach(store => {
-                const info = product.sellers[store];
+            columnKeys.forEach(key => {
+                const info = product.segments[key];
                 if (info) {
                     const isOutOfStock = info.promo === 'Товар закончился';
                     rowHtml += `
@@ -429,8 +556,15 @@
     });
 
     // Handlers
+    document.getElementById('lemana-region-select').addEventListener('change', () => {
+        currentPage = 1;
+        document.getElementById('products-table-body').innerHTML = '';
+        loadTable();
+    });
+
     document.getElementById('ozon-btn').addEventListener('change', () => {
         currentPlatform = 'ozon';
+        document.getElementById('lemana-actions').classList.add('d-none');
         document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
         currentPage = 1;
         document.getElementById('products-table-body').innerHTML = ''; // Clear table on platform change
@@ -438,10 +572,61 @@
     });
     document.getElementById('wb-btn').addEventListener('change', () => {
         currentPlatform = 'wb';
+        document.getElementById('lemana-actions').classList.add('d-none');
         document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
         currentPage = 1;
-        document.getElementById('products-table-body').innerHTML = ''; // Clear table on platform change
+        document.getElementById('products-table-body').innerHTML = '';
         loadStats(); loadChart(); loadTable();
+    });
+    document.getElementById('lemana-btn').addEventListener('change', () => {
+        currentPlatform = 'lemana';
+        document.getElementById('lemana-actions').classList.remove('d-none');
+        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
+        currentPage = 1;
+        document.getElementById('products-table-body').innerHTML = '';
+        loadStats(); loadChart(); loadTable();
+    });
+
+    // Targeted Parsing Logic
+    document.getElementById('lemana-targeted-parse-btn').addEventListener('click', function () {
+        const selectedCheckboxes = document.querySelectorAll('.item-checkbox:checked');
+        if (selectedCheckboxes.length === 0) {
+            alert('Сначала выберите хотя бы один товар чекбоксом в таблице.');
+            return;
+        }
+
+        const skus = Array.from(selectedCheckboxes).map(cb => cb.value);
+        const regionValue = document.getElementById('lemana-region-select').value;
+        let regionIds = [];
+
+        if (regionValue === 'all') {
+            regionIds = [34, 506, 505, 508, 509, 510, 511, 715, 716, 539, 1437, 1443, 1447, 1448, 2149, 2389, 2393, 2397, 2949, 3257, 3258, 3372, 3399, 3402, 3428, 3429, 3439, 3752, 4124, 4794, 5057, 5342, 5343, 6048, 6062, 6063, 6395, 6466, 6516, 6607, 6609, 6725, 7011, 7073, 7138, 7278, 7290, 7874, 8157, 8232, 8332, 8492];
+        } else {
+            regionIds = [parseInt(regionValue)];
+        }
+
+        this.disabled = true;
+        const originalText = this.innerHTML;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Запуск...';
+
+        fetch('/api/lemana/parse_targeted', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skus, region_ids: regionIds })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert(data.message);
+                } else {
+                    alert('Ошибка: ' + data.message);
+                }
+            })
+            .catch(err => alert('Ошибка сети: ' + err))
+            .finally(() => {
+                this.disabled = false;
+                this.innerHTML = originalText;
+            });
     });
 
     document.getElementById('apply-filters-btn').addEventListener('click', () => {
@@ -506,18 +691,31 @@
     }
 
     /* Sticky columns for Matrix View */
-    .view-matrix #table-headers th:first-child,
-    .view-matrix #products-table-body td:first-child {
+    .view-matrix #table-headers th:nth-child(1),
+    .view-matrix #products-table-body td:nth-child(1) {
         position: sticky;
         left: 0;
+        background: #0a0b10 !important;
+        z-index: 31;
+        box-shadow: 5px 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .view-matrix #table-headers th:nth-child(2),
+    .view-matrix #products-table-body td:nth-child(2) {
+        position: sticky;
+        left: 300px;
+        /* Approximately after Name column */
         background: #0f1016 !important;
         z-index: 30;
         box-shadow: 5px 0 10px rgba(0, 0, 0, 0.5);
     }
 
-    .view-matrix #table-headers th:first-child {
-        z-index: 40;
-        background: #0a0b10 !important;
+    .view-matrix #table-headers th {
+        white-space: nowrap;
+    }
+
+    .view-matrix td {
+        white-space: nowrap;
     }
 
     #products-table-body tr {
@@ -577,6 +775,12 @@
         background: rgba(168, 85, 247, 0.1);
         color: #c084fc;
         border-color: rgba(168, 85, 247, 0.2);
+    }
+
+    .badge-lemana {
+        background: rgba(34, 197, 94, 0.1);
+        color: #4ade80;
+        border-color: rgba(34, 197, 94, 0.2);
     }
 
     .badge-holod {

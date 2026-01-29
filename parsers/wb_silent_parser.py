@@ -35,6 +35,18 @@ def find_chrome():
 
 # --- Config ---
 CHROME_PATH = find_chrome()
+
+def get_chrome_major_version():
+    """Detect installed Chrome major version on Windows."""
+    try:
+        import subprocess
+        cmd = 'powershell -Command "(Get-Item \'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\').VersionInfo.ProductVersion"'
+        output = subprocess.check_output(cmd, shell=True).decode().strip()
+        if output:
+            return int(output.split('.')[0])
+    except:
+        pass
+    return None
 WB_INTERNAL_API = "https://www.wildberries.ru/__internal/u-card/cards/v4/detail"
 DB_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 
@@ -80,17 +92,45 @@ class WildberriesSilentParser:
             options.add_argument(f"--load-extension={ext_path}")
         except: pass
 
+        # Setup profile on F: drive
+        profile_dir = r"F:\Temp\chrome_profiles\wb_warmup"
+        if not os.path.exists(profile_dir):
+            try: os.makedirs(profile_dir, exist_ok=True)
+            except: pass
+        options.add_argument(f"--user-data-dir={profile_dir}")
+
         driver = None
+        max_retries = 10
+        major_version = get_chrome_major_version()
+        
+        for attempt in range(max_retries):
+            try:
+                # Random port like in Ozon to avoid conflicts
+                port = random.randint(9300, 9500)
+                driver = uc.Chrome(
+                    options=options, 
+                    browser_executable_path=CHROME_PATH,
+                    driver_executable_path=None,
+                    version_main=major_version or 144,
+                    port=port,
+                    suppress_welcome=True
+                )
+                break # Success
+            except Exception as e:
+                err_str = str(e)
+                if "WinError 183" in err_str or "WinError 32" in err_str or "already exists" in err_str or "occupied" in err_str:
+                    wait = random.uniform(2, 5)
+                    print(f"[SILENT] Driver lock detected (Attempt {attempt+1}/{max_retries}), retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+                    continue
+                
+                print(f"[SILENT] ❌ Warmup ERROR (Attempt {attempt+1}): {e}")
+                if attempt == max_retries - 1:
+                    return False
+                time.sleep(2)
+        
         try:
-            # Random port like in Ozon to avoid conflicts
-            port = random.randint(9300, 9500)
-            driver = uc.Chrome(
-                options=options, 
-                browser_executable_path=CHROME_PATH,
-                driver_executable_path=None,
-                port=port,
-                suppress_welcome=True
-            )
+            if not driver: return False
             driver.set_page_load_timeout(30)
             driver.get("https://www.wildberries.ru")
             time.sleep(10)

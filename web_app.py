@@ -14,6 +14,7 @@ from core.user_management import UserManager
 from functools import wraps
 import pandas as pd
 import io
+from core.lemana_utils import get_lemana_regional_url
 
 CONFIG_FILE = 'config.json'
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +25,8 @@ def load_config():
             return json.load(f)
     return {
         "ozon_spreadsheet_url": "",
-        "wb_spreadsheet_url": ""
+        "wb_spreadsheet_url": "",
+        "lemana_spreadsheet_url": ""
     }
 
 def save_config(config):
@@ -170,6 +172,39 @@ def parser():
 def settings():
     return render_template('settings.html')
 
+def run_script_in_background(script_path, log_name, show_console=False):
+    """Helper to run a python script in background with logging"""
+    try:
+        log_dir = os.path.join(ROOT_DIR, 'logs')
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        log_file_path = os.path.join(log_dir, f"{log_name}.log")
+        
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        
+        popen_kwargs = {
+            "cwd": ROOT_DIR,
+            "env": env
+        }
+        
+        if show_console and os.name == 'nt':
+            # On Windows, create a new visible console window
+            # We don't redirect to file here so the output is visible in the console
+            # (Alternatively, we could use 'tee' but that's not native on Windows)
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+        else:
+            log_file = open(log_file_path, "w", encoding="utf-8")
+            popen_kwargs["stdout"] = log_file
+            popen_kwargs["stderr"] = subprocess.STDOUT
+        
+        subprocess.Popen([sys.executable, "-u", script_path], **popen_kwargs)
+        return True, f'logs/{log_name}.log'
+    except Exception as e:
+        return False, str(e)
+
 @app.route('/api/parser/start', methods=['POST'])
 @login_required
 @permission_required('can_run_parser')
@@ -185,28 +220,13 @@ def start_parser():
             script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
             name = "WB Parser"
             
-        # Run in background without window and redirect output to log file
-        # Use -u for unbuffered output and 'w' to clear old logs
-        log_dir = os.path.join(ROOT_DIR, 'logs')
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        success, result = run_script_in_background(script_path, platform, show_console=True)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': f'Парсинг {platform.upper()} запущен (лог: {result})'})
+        else:
+            return jsonify({'status': 'error', 'message': result})
             
-        log_file_path = os.path.join(log_dir, f"{platform}.log")
-        # Open in write mode to clear previous log on start
-        log_file = open(log_file_path, "w", encoding="utf-8")
-        
-        # CREATE_NO_WINDOW = 0x08000000
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
-        
-        subprocess.Popen([sys.executable, "-u", script_path], 
-                         cwd=ROOT_DIR, 
-                         stdout=log_file,
-                         stderr=subprocess.STDOUT,
-                         env=env)
-        
-        return jsonify({'status': 'success', 'message': f'Парсинг {platform.upper()} запущен (лог: logs/{platform}.log)'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -230,6 +250,10 @@ def stop_parser():
         scripts_to_kill = [
             'ozon_parser_production_final.py',
             'wb_parser_production.py',
+            'lemana_parser_production.py',
+            'lemana_silent_parser.py', # Ensure the class file itself isn't somehow running as main
+            'lemana_targeted_parser.py',
+            'import_lemana_from_sheets.py',
             'run_wb.bat'
         ]
         
@@ -241,10 +265,72 @@ def stop_parser():
         # Also kill by window title if any were started traditionally
         subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq OZON Parser*', '/T'], shell=True, capture_output=True)
         subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq WB Parser*', '/T'], shell=True, capture_output=True)
+        subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq Lemana Parser*', '/T'], shell=True, capture_output=True)
         
         return jsonify({'status': 'success', 'message': 'Все процессы парсинга остановлены'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Ошибка при остановке: {str(e)}'})
+
+@app.route('/api/lemana/parser/start', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def start_lemana_parser():
+    try:
+        script_path = os.path.join(ROOT_DIR, 'parsers', 'lemana_parser_production.py')
+        success, result = run_script_in_background(script_path, "lemana", show_console=True)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': f'Парсинг Lemana Pro запущен (лог: {result})'})
+        else:
+            return jsonify({'status': 'error', 'message': result})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/lemana/import', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def import_lemana():
+    try:
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'import_lemana_from_sheets.py')
+        success, result = run_script_in_background(script_path, "lemana_import", show_console=True)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': f'Импорт Lemana запущен (лог: {result})'})
+        else:
+             return jsonify({'status': 'error', 'message': result})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/lemana/parse_targeted', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def parse_lemana_targeted():
+    try:
+        data = request.json
+        if not data or not data.get('skus'):
+            return jsonify({'status': 'error', 'message': 'Не выбраны товары для парсинга'})
+            
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'lemana_targeted_parser.py')
+        log_file_path = os.path.join(ROOT_DIR, 'logs', 'lemana_parser.log')
+        
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        # Targeted parser appends to main log, distinct from background runner
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"\n--- Targeted Parsing Started at {datetime.now()} ---\n")
+            log_file.flush()
+            
+            subprocess.Popen(
+                [sys.executable, "-u", script_path, json.dumps(data)],
+                cwd=ROOT_DIR,
+                env=env,
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            )
+            
+        return jsonify({'status': 'success', 'message': f'Точечный парсинг запущен для {len(data["skus"])} товаров'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/wb/parser/start', methods=['POST'])
 @login_required
@@ -254,26 +340,12 @@ def start_wb_parser():
         # We now prefer using the unified /api/parser/start?platform=wb
         # but keeping this for compatibility or direct calls
         script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
+        success, result = run_script_in_background(script_path, "wb", show_console=True)
         
-        log_dir = os.path.join(ROOT_DIR, 'logs')
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-            
-        log_file_path = os.path.join(log_dir, "wb.log")
-        # Open in write mode to clear previous log on start
-        log_file = open(log_file_path, "w", encoding="utf-8")
-        
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
-        
-        subprocess.Popen([sys.executable, "-u", script_path], 
-                         cwd=ROOT_DIR, 
-                         stdout=log_file,
-                         stderr=subprocess.STDOUT,
-                         env=env)
-                         
-        return jsonify({'status': 'success', 'message': 'Парсинг Wildberries запущен (лог: logs/wb.log)'})
+        if success:
+             return jsonify({'status': 'success', 'message': f'Парсинг Wildberries запущен (лог: {result})'})
+        else:
+             return jsonify({'status': 'error', 'message': result})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -388,6 +460,38 @@ def clear_ozon_database():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Ошибка очистки OZON: {str(e)}'})
+
+@app.route('/api/database/clear_lemana', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def clear_lemana_database():
+    """Clear all Lemana Pro data from lemana_prices table"""
+    try:
+        db_url = os.getenv('DB_URL')
+        if not db_url:
+            db_user = os.getenv('DB_USER')
+            db_pass = os.getenv('DB_PASS')
+            db_host = os.getenv('DB_HOST')
+            db_port = os.getenv('DB_PORT')
+            db_name = os.getenv('DB_NAME')
+            db_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        
+        cur.execute("DELETE FROM public.lemana_prices")
+        deleted_count = cur.rowcount
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Таблица Lemana Pro очищена. Удалено записей: {deleted_count}'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Ошибка очистки Lemana: {str(e)}'})
 
 @app.route('/api/database/clear_wb', methods=['POST'])
 @login_required
@@ -602,8 +706,6 @@ def test_database_connection():
         return jsonify({'status': 'error', 'message': f'Ошибка подключения: {str(e)}'})
 
 @app.route('/api/dashboard/stats', methods=['GET'])
-
-@app.route('/api/dashboard/stats', methods=['GET'])
 @login_required  
 def dashboard_stats():
     platform = request.args.get('platform', 'ozon')
@@ -615,7 +717,11 @@ def dashboard_stats():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
-        table = 'wb_prices' if platform == 'wb' else 'prices'
+        table = 'prices'
+        if platform == 'wb':
+            table = 'wb_prices'
+        elif platform == 'lemana':
+            table = 'lemana_prices'
         cur = conn.cursor()
         
         print("[DEBUG] Querying total products...")
@@ -676,18 +782,24 @@ def dashboard_chart():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
-        table = 'wb_prices' if platform == 'wb' else 'prices'
+        table = 'prices'
+        if platform == 'wb':
+            table = 'wb_prices'
+        elif platform == 'lemana':
+            table = 'lemana_prices'
         cur = conn.cursor()
         
         # Get average price by competitor
+        price_col = 'price' if platform == 'lemana' else 'price_card'
+        
         cur.execute(f"""
             SELECT 
                 competitor_name,
-                AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) as avg_price
+                AVG(NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC) as avg_price
             FROM {table} 
             WHERE competitor_name IS NOT NULL 
-            AND price_card IS NOT NULL
-            AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            AND {price_col} IS NOT NULL
+            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
             GROUP BY competitor_name
             ORDER BY avg_price DESC
             LIMIT 10
@@ -708,13 +820,15 @@ def dashboard_chart():
 @app.route('/api/dashboard/items', methods=['GET'])
 @login_required
 def dashboard_items():
-    platform = request.args.get('platform', 'ozon')
+    platform = request.args.get('platform', 'ozon').strip()
+    print(f"[DEBUG] Dashboard items request: platform='{platform}'")
+    
     search = request.args.get('search', '')
     min_price = request.args.get('min_price', '')
     max_price = request.args.get('max_price', '')
     store = request.args.get('store', '')
     page = int(request.args.get('page', 1))
-    per_page = 20
+    per_page = int(request.args.get('per_page', 20))
     
     try:
         conn = psycopg2.connect(
@@ -724,12 +838,26 @@ def dashboard_items():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
-        table = 'wb_prices' if platform == 'wb' else 'prices'
+        table = 'prices'
+        lemana_region = request.args.get('lemana_region', 'all')
+        
+        if platform == 'wb':
+            table = 'wb_prices'
+        elif platform == 'lemana':
+            table = 'lemana_prices'
         cur = conn.cursor()
         
         # Include status for logic matching
-        query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code FROM {table} WHERE 1=1"
         params = []
+        if platform == 'lemana':
+            # Include region_id for the regional dashboard display
+            query = f"SELECT sku, name, competitor_name, price, stock, last_updated, sp_code, url, region_id FROM {table} WHERE 1=1"
+            if lemana_region != 'all' and lemana_region:
+                query += " AND region_id = %s"
+                params.append(lemana_region)
+        else:
+            query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code FROM {table} WHERE 1=1"
+            
         
         if search:
             query += " AND (sku ILIKE %s OR name ILIKE %s)"
@@ -738,10 +866,12 @@ def dashboard_items():
             query += " AND competitor_name = %s"
             params.append(store)
         if min_price:
-            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+            price_col = "price" if platform == 'lemana' else "price_nocard"
+            query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
             params.append(min_price)
         if max_price:
-            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+            price_col = "price" if platform == 'lemana' else "price_nocard"
+            query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
             params.append(max_price)
             
         # Count total for pagination
@@ -780,19 +910,64 @@ def dashboard_items():
                 return '---'
             return str(val)
 
+        LEMANA_REGIONS = {
+            34: "Москва и МО", 506: "Санкт-Петербург", 505: "Краснодар", 508: "Новосибирск", 509: "Омск",
+            510: "Воронеж", 511: "Уфа", 715: "Екатеринбург", 716: "Волгоград", 539: "Красноярск",
+            1437: "Тверь", 1443: "Тюмень", 1447: "Рязань", 1448: "Казань", 2149: "Челябинск",
+            2389: "Новокузнецк", 2393: "Кемерово", 2397: "Барнаул", 2949: "Набережные Челны",
+            3257: "Пенза", 3258: "Тула", 3372: "Ярославль", 3399: "Ульяновск", 3402: "Тольятти",
+            3428: "Кострома", 3429: "Киров", 3439: "Саратов", 3752: "Ставрополь", 4124: "Хабаровск",
+            4794: "Оренбург", 5057: "Пермь", 5342: "Иркутск", 5343: "Петрозаводск", 6048: "Калининград",
+            6062: "Курск", 6063: "Архангельск", 6395: "Саранск", 6466: "Нижний Новгород", 6516: "Череповец",
+            6607: "Калуга", 6609: "Ижевск", 6725: "Белгород", 7011: "Владикавказ", 7073: "Новороссийск",
+            7138: "Владивосток", 7278: "Иваново", 7290: "Липецк", 7874: "Псков", 8157: "Сургут",
+            8232: "Клин", 8332: "Смоленск", 8492: "Наро-Фоминск"
+        }
+
         items = []
+        # Get requested region for Lemana URL formatting
+        req_region = request.args.get('lemana_region')
+        
         for r in rows:
-            status = r[7]
-            items.append({
-                'sku': r[0],
-                'name': r[1],
-                'seller': r[2],
-                'promo': format_val(r[3], status),
-                'price': format_val(r[4], status),
-                'old': format_val(r[5], status),
-                'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---',
-                'sp_code': r[8] or '---'
-            })
+            if platform == 'lemana':
+                # Use requested region or item's current region
+                target_region = req_region if req_region and req_region != 'all' else 34
+                # r structure: 0=sku, 1=name, 2=comp, 3=price, 4=stock, 5=updated, 6=sp_code, 7=url, 8=region_id
+                
+                fake_status = 'AVAILABLE'
+                if r[4] is not None and int(r[4]) <= 0:
+                    fake_status = 'OUT_OF_STOCK'
+                    
+                formatted_url = get_lemana_regional_url(r[7], target_region) if r[7] else None
+                
+                # Get region name
+                rid = r[8] if len(r) > 8 else 34
+                region_name = LEMANA_REGIONS.get(rid, f"Регион {rid}")
+
+                items.append({
+                    'sku': r[0],
+                    'name': r[1],
+                    'seller': r[2],
+                    'promo': format_val(r[3], fake_status), 
+                    'price': format_val(r[3], fake_status),
+                    'old': '---',
+                    'updated': r[5].strftime('%d.%m %H:%M') if r[5] else '---',
+                    'sp_code': r[6] or '---',
+                    'url': formatted_url,
+                    'region_name': region_name
+                })
+            else:
+                status = r[7]
+                items.append({
+                    'sku': r[0],
+                    'name': r[1],
+                    'seller': r[2],
+                    'promo': format_val(r[3], status),
+                    'price': format_val(r[4], status),
+                    'old': format_val(r[5], status),
+                    'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---',
+                    'sp_code': r[8] or '---'
+                })
             
         return jsonify({
             'items': items,
@@ -823,7 +998,11 @@ def dashboard_export():
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT')
         )
-        table = 'wb_prices' if platform == 'wb' else 'prices'
+        table = 'prices'
+        if platform == 'wb':
+            table = 'wb_prices'
+        elif platform == 'lemana':
+            table = 'lemana_prices'
         
         query = f"SELECT sku as \"SKU\", competitor_name as \"Продавец\", price_card as \"Промо\", price_nocard as \"Цена\", price_old as \"Старая\" FROM {table} WHERE 1=1"
         params = []

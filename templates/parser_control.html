@@ -22,6 +22,9 @@
                 <button id="start-wb-parser-btn" class="btn btn-action py-3" style="background: #a855f7;">
                     <i class="bi bi-play-fill me-2"></i> Запуск WB
                 </button>
+                <button id="start-lemana-parser-btn" class="btn btn-action py-3" style="background: #22c55e;">
+                    <i class="bi bi-play-fill me-2"></i> Запуск Lemana
+                </button>
                 <button id="stop-parser-btn" class="btn btn-outline-danger py-3 border-2 rounded-4">
                     <i class="bi bi-stop-fill me-2"></i> Остановить всё
                 </button>
@@ -87,6 +90,40 @@
             .then(data => {
                 addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
                 setTimeout(() => startLogPolling('wb'), 500);
+            });
+    });
+
+    document.getElementById('start-lemana-parser-btn').addEventListener('click', function () {
+        log.innerHTML = '<div class="text-warning">[SYSTEM] Подготовка к запуску Lemana Pro...</div>';
+        fetch('/api/lemana/parser/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+            .then(r => r.json())
+            .then(data => {
+                addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
+                setTimeout(() => startLogPolling('lemana'), 500);
+            });
+    });
+
+    document.getElementById('import-lemana-btn').addEventListener('click', function () {
+        addLog('Запуск импорта Lemana Pro из Google Sheets...');
+        const btn = this;
+        btn.disabled = true;
+
+        fetch('/api/lemana/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+            .then(r => r.json())
+            .then(data => {
+                addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
+            })
+            .catch(err => addLog('Ошибка импорта: ' + err, 'ERROR'))
+            .finally(() => {
+                btn.disabled = false;
             });
     });
 

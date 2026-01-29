@@ -95,6 +95,19 @@ def find_chrome():
     return "chrome.exe" # Fallback to default
 
 CHROME_PATH = find_chrome()
+
+def get_chrome_major_version():
+    """Detect installed Chrome major version on Windows."""
+    try:
+        import subprocess
+        cmd = 'powershell -Command "(Get-Item \'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\').VersionInfo.ProductVersion"'
+        output = subprocess.check_output(cmd, shell=True).decode().strip()
+        if output:
+            return int(output.split('.')[0])
+    except:
+        pass
+    return None
+
 DB_URL = os.getenv('DB_URL')
 if not DB_URL:
     user = os.getenv('DB_USER')
@@ -107,6 +120,9 @@ if not DB_URL:
     else:
         print("[ERROR] Database environment variables missing!")
         sys.exit(1)
+
+TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN')
+TG_CHAT_ID = os.getenv('TG_CHAT_ID')
 DEBUG_PORT_START=9222
 NUM_WORKERS=1
 BATCH_SIZE=180
@@ -153,28 +169,61 @@ def warmup_session():
     ua = generate_random_user_agent()
     options.add_argument(f"user-agent={ua}")
     
+    # Setup profile on F: drive
+    profile_dir = r"F:\Temp\chrome_profiles\ozon\warmup"
+    if not os.path.exists(profile_dir):
+        try: os.makedirs(profile_dir, exist_ok=True)
+        except: pass
+    options.add_argument(f"--user-data-dir={profile_dir}")
+
     driver = None
     try:
-        print("[WARMUP] Запуск браузера (ПРЯМОЕ СОЕДИНЕНИЕ - быстрый тест)...")
-        driver = uc.Chrome(options=options, browser_executable_path=CHROME_PATH)
+        max_retries = 10
+        major_version = get_chrome_major_version()
         
-        print("[WARMUP] Посещение Ozon...")
-        driver.get("https://www.ozon.ru")
-        time.sleep(3)
+        for attempt in range(max_retries):
+            try:
+                print(f"[WARMUP] Запуск браузера (ПРЯМОЕ СОЕДИНЕНИЕ - попытка {attempt+1}, Chrome: {major_version})...")
+                driver = uc.Chrome(
+                    options=options, 
+                    browser_executable_path=CHROME_PATH,
+                    version_main=major_version or 144,
+                    suppress_welcome=True
+                )
+                
+                print("[WARMUP] Посещение Ozon...")
+                driver.get("https://www.ozon.ru")
+                time.sleep(3)
+                
+                # Прогрев на странице любого товара (как в тесте)
+                print("[WARMUP] Прогрев на странице товара...")
+                driver.get("https://www.ozon.ru/product/1067025156/")
+                time.sleep(8) # Increased for stability
+                    
+                selenium_cookies = driver.get_cookies()
+                cookies_dict = {cookie['name']: cookie['value'] for cookie in selenium_cookies}
+                user_agent = driver.execute_script("return navigator.userAgent;")
+                
+                if 'xcid' in cookies_dict or len(cookies_dict) > 5:
+                    print(f"[WARMUP] ✅ Сессия прогрета. Извлечено {len(cookies_dict)} куки.")
+                    return cookies_dict, user_agent
+                else:
+                    print("[WARMUP] ⚠️ Мало куки, пробуем еще раз...")
+                    driver.quit()
+                    driver = None
+            except Exception as e:
+                err_str = str(e)
+                if "WinError 183" in err_str or "WinError 32" in err_str:
+                    wait = random.uniform(3, 8)
+                    print(f"[WARMUP] 🔒 Driver lock, retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+                    continue
+                    
+                print(f"[WARMUP] ERROR (Attempt {attempt+1}): {e}")
+                if attempt == max_retries - 1:
+                    return None, None
+                time.sleep(2)
         
-        # Прогрев на странице любого товара (как в тесте)
-        print("[WARMUP] Прогрев на странице товара...")
-        driver.get("https://www.ozon.ru/product/1067025156/")
-        time.sleep(5)
-            
-        selenium_cookies = driver.get_cookies()
-        cookies_dict = {cookie['name']: cookie['value'] for cookie in selenium_cookies}
-        user_agent = driver.execute_script("return navigator.userAgent;")
-        
-        print(f"[WARMUP] ✅ Сессия прогрета. Извлечено {len(cookies_dict)} куки.")
-        return cookies_dict, user_agent
-    except Exception as e:
-        print(f"[WARMUP] ERROR: {e}")
         return None, None
     finally:
         if driver:
@@ -224,8 +273,8 @@ def generate_random_user_agent():
     return generate_random_user_agent_full()['ua']
 
 def start_browser_uc(port, unique_id, ua_info, proxy_host, proxy_port, proxy_user, proxy_pass, worker_id):
-    # USE UNIQUE TEMPORARY PROFILE
-    profile=f"C:\\Temp\\chrome_profiles\\ozon\\tmp_{unique_id}"
+    # USE UNIQUE TEMPORARY PROFILE ON F: DRIVE
+    profile=f"F:\\Temp\\chrome_profiles\\ozon\\tmp_{unique_id}"
     Path(profile).mkdir(parents=True,exist_ok=True)
     
     user_agent = ua_info['ua']
@@ -262,29 +311,38 @@ def start_browser_uc(port, unique_id, ua_info, proxy_host, proxy_port, proxy_use
     # Diagnostic: Move window to (0,0) to see if off-screen was the trigger
     options.add_argument("--window-position=0,0")
 
-    max_start_retries = 3
+    max_start_retries = 10
     driver = None
+    major_version = get_chrome_major_version()
+    
     for attempt in range(max_start_retries):
         try:
-            print(f"[W{worker_id}] 🚀 Attempt {attempt+1} to start browser on port {port}...")
+            print(f"[W{worker_id}] 🚀 Attempt {attempt+1} to start browser on port {port} (Chrome Version: {major_version})...")
             driver = uc.Chrome(
                 options=options,
                 driver_executable_path=None, # Auto-download
                 browser_executable_path=CHROME_PATH,
-                version_main=None,
+                version_main=major_version or 144,
                 port=port,
                 suppress_welcome=True
             )
             if driver:
                 break
         except Exception as e:
+            err_str = str(e)
+            if "WinError 183" in err_str or "WinError 32" in err_str or "already exists" in err_str or "occupied" in err_str:
+                wait = random.uniform(3, 8)
+                print(f"[W{worker_id}] 🔒 Driver lock detected, retrying in {wait:.1f}s...")
+                time.sleep(wait)
+                continue
+
             print(f"[W{worker_id}] ❌ Start attempt {attempt+1} failed: {e}")
             if attempt < max_start_retries - 1:
                 # Close potential orphan chrome from failed attempt
                 try:
                     subprocess.run(f'taskkill /F /IM chrome.exe /FI "WINDOWTITLE eq tmp_{unique_id}*"', shell=True, capture_output=True)
                 except: pass
-                time.sleep(random.uniform(3, 7))
+                time.sleep(random.uniform(5, 10))
             else:
                 raise e
 
@@ -871,20 +929,18 @@ def send_to_telegram(filename,stats_text):
             data={'chat_id':TG_CHAT_ID}
             response=requests.post(url,data=data,files=files,timeout=60)
             print(f"[TG] Response status: {response.status_code}")  # DEBUG
-            if response.status_code==200:
-                print("[TG] Report sent successfully")
-                # Даем системе время закрыть дескриптор файла
-                time.sleep(5)
-                try:
-                    if os.path.exists(filename):
-                        os.remove(filename)
-                        print(f"[TG] ✅ File deleted: {filename}")
-                except Exception as del_err:
-                    print(f"[TG] ❌ Failed to delete file: {del_err}")
-            else:
-                print(f"[TG] Error: {response.text}")
     except Exception as e:
         print(f"[TG] Error sending file: {e}")
+    finally:
+        # Always attempt to delete the report after sending attempt
+        if filename and os.path.exists(filename):
+            print(f"[TG] ⏳ Waiting to close file handle ({filename})...")
+            time.sleep(5)
+            try:
+                os.remove(filename)
+                print(f"[TG] 🗑️ Report deleted: {filename}")
+            except Exception as del_err:
+                print(f"[TG] ❌ Failed to delete {filename}: {del_err}")
 
 def kill_all_browsers():
     import subprocess
@@ -926,6 +982,20 @@ def kill_all_browsers():
 
 def main():
     global processed_count,results,last_processed_skus,batch_complete
+    
+    # Clean up old reports before starting
+    print("[CLEANUP] Removing old Ozon report files...")
+    try:
+        import glob
+        for old_report in glob.glob("ozon_prices_report_*.xlsx"):
+            try:
+                os.remove(old_report)
+                print(f"[CLEANUP] 🗑️ Deleted: {old_report}")
+            except:
+                pass
+    except Exception as e:
+        print(f"[CLEANUP] ⚠️ Could not clean old reports: {e}")
+    
     print("="*100)
     print("OZON PRODUCTION PARSER - РЕЖИМ НЕПРЕРЫВНЫХ БАТЧЕЙ")
     print(f"СТРАТЕГИЯ: {MAX_PRODUCTS_PER_BATCH} товаров -> сохранить -> БЕЗ ПАУЗ -> следующие {MAX_PRODUCTS_PER_BATCH}")
@@ -1058,6 +1128,8 @@ def main():
 
 if __name__=='__main__':
     print("DEBUG: Starting parser...")
+    if os.name == 'nt':
+        os.system('title OZON Parser (Full)')
     print("\n"+"="*70)
     print("ВАЖНО: Убедитесь что 3proxy запущен!")
     print("="*70)

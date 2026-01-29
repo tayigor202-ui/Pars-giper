@@ -35,13 +35,14 @@ class ProxyPool:
             self._proxies = self._proxies[:sample]
         if healthcheck:
             self._proxies = self._check_all(self._proxies)
-        if not self._proxies:
-            raise RuntimeError("No alive proxies after healthcheck")
+            if not self._proxies:
+                raise RuntimeError("No alive proxies after healthcheck")
         self._i = 0
 
     def _load(self) -> List[Proxy]:
         if not os.path.exists(self.path):
-            raise FileNotFoundError(self.path)
+            print(f"[PROXY] Warning: {self.path} not found. Pool will be empty.")
+            return []
         items: List[Proxy] = []
         with open(self.path, "r", encoding="utf-8") as f:
             for ln in f:

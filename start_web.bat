@@ -1,38 +1,7 @@
 @echo off
 chcp 65001 >nul
-echo ======================================================================
-echo              ЗАПУСК ВЕБ-ИНТЕРФЕЙСА OZON/WB PARSER
-echo ======================================================================
-echo.
+cd /d "F:\Pars-giper"
 
-REM Check if .env exists
-if not exist ".env" (
-    echo [ОШИБКА] Файл .env не найден!
-    echo.
-    echo Сначала выполните установку:
-    echo     install.bat
-    echo.
-    echo Или:
-    echo     python setup.py
-    echo.
-    pause
-    exit /b 1
-)
+echo [%DATE% %TIME%] Starting Web Server (Python 3.11)... >> startup_log.txt
 
-echo Проверка обновлений в репозитории Git...
-git pull origin main
-echo.
-
-echo Запуск веб-серера...
-echo.
-echo Веб-интерфейс будет доступен по адресу:
-echo     http://localhost:3455
-echo.
-echo Для остановки нажмите Ctrl+C
-echo.
-echo ======================================================================
-echo.
-
-python web_app.py
-
-pause
+"C:\Users\Kerher\AppData\Local\Programs\Python\Python311\python.exe" web_app.py >> startup_log.txt 2>&1

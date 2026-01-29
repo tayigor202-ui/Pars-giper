@@ -101,6 +101,40 @@
     </div>
 
     <div class="col-md-6">
+        <div class="main-card h-100 reveal" style="animation-delay: 0.32s">
+            <div class="card-header">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-database text-neon-cyan"></i> База данных (Lemana Pro)</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-link-45deg"></i> URL Google Sheets (Lemana)</label>
+                    <input type="text" class="form-control" id="google-sheet-url-lemana"
+                        placeholder="https://docs.google.com/spreadsheets/d/...">
+                    <small class="text-white-50 d-block mt-1">Ссылка на таблицу с товарами Lemana для импорта</small>
+                </div>
+
+                <button class="btn btn-premium w-100 mb-3" id="save-sheet-url-lemana-btn">
+                    <i class="bi bi-save"></i> Сохранить ссылку Lemana
+                </button>
+
+                <hr style="border-color: rgba(255,255,255,0.2);">
+
+                <div class="mb-3">
+                    <p><i class="bi bi-arrow-repeat"></i> Обновить список товаров Lemana из Google Sheets</p>
+                    <button class="btn btn-premium w-100 mb-2" id="update-db-lemana-btn">
+                        <i class="bi bi-arrow-repeat"></i> Импортировать Lemana
+                    </button>
+                    <button class="btn btn-danger-premium w-100" id="clear-db-lemana-btn">
+                        <i class="bi bi-trash"></i> Очистить таблицу Lemana
+                    </button>
+                </div>
+
+                <div id="db-status-lemana" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
         <div class="main-card h-100 reveal" style="animation-delay: 0.35s">
             <div class="card-header">
                 <h5 class="mb-0 fw-bold"><i class="bi bi-telegram text-neon-cyan"></i> Telegram Уведомления</h5>
@@ -484,6 +518,7 @@
             fetch('/api/config').then(r => r.json()).then(data => {
                 if (data.ozon_spreadsheet_url) getEl('google-sheet-url').value = data.ozon_spreadsheet_url;
                 if (data.wb_spreadsheet_url) getEl('google-sheet-url-wb').value = data.wb_spreadsheet_url;
+                if (data.lemana_spreadsheet_url) getEl('google-sheet-url-lemana').value = data.lemana_spreadsheet_url;
             }).catch(err => console.error('Config load error:', err));
 
             fetch('/api/system/settings').then(r => r.json()).then(data => {
@@ -659,6 +694,27 @@
             });
         }
 
+        // Clear Lemana Database
+        const clearLemanaBtn = getEl('clear-db-lemana-btn');
+        if (clearLemanaBtn) {
+            clearLemanaBtn.addEventListener('click', function () {
+                if (!confirm('⚠️ ВНИМАНИЕ! Это удалит ВСЕ данные Lemana Pro из таблицы. Продолжить?')) {
+                    return;
+                }
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Очистка...';
+                fetch('/api/database/clear_lemana', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-lemana', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-lemana', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
+            });
+        }
+
         // Telegram Save
         const saveTgBtn = getEl('save-telegram-settings-btn');
         if (saveTgBtn) {
@@ -749,6 +805,41 @@
         // Initial load
         loadSchedules();
         loadConfig();
+
+        // Lemana Pro Handlers
+        const saveLemanaSheetBtn = getEl('save-sheet-url-lemana-btn');
+        if (saveLemanaSheetBtn) {
+            saveLemanaSheetBtn.addEventListener('click', function () {
+                const url = getEl('google-sheet-url-lemana').value;
+                this.disabled = true;
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lemana_spreadsheet_url: url })
+                })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-lemana', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-lemana', 'Ошибка: ' + err, true))
+                    .finally(() => this.disabled = false);
+            });
+        }
+
+        const updateLemanaBtn = getEl('update-db-lemana-btn');
+        if (updateLemanaBtn) {
+            updateLemanaBtn.addEventListener('click', function () {
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Скрипт запущен...';
+                fetch('/api/lemana/import', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => setStatus('db-status-lemana', data.message, data.status !== 'success'))
+                    .catch(err => setStatus('db-status-lemana', 'Ошибка: ' + err, true))
+                    .finally(() => {
+                        this.disabled = false;
+                        this.innerHTML = originalHtml;
+                    });
+            });
+        }
     });
 </script>
 {% endblock %}
