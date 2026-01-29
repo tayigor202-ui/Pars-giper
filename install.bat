@@ -1,68 +1,41 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+echo ==========================================
+echo    PARS-GIPER INSTALLER (DEBUG MODE)
+echo ==========================================
+echo.
+echo DEBUG: Script started. Early pause incoming...
+pause
 
 cd /d "%~dp0"
+echo DEBUG: Current directory: %cd%
 
-echo ======================================================================
-echo            АВТОМАТИЧЕСКАЯ УСТАНОВКА OZON/WB PARSER
-echo ======================================================================
-echo.
-
-REM --- 1. ПРОВЕРКА PYTHON ---
-echo [SYSTEM] Проверка наличия Python...
-
-set PYTHON_CMD=python
-%PYTHON_CMD% --version >nul 2>&1
+REM Check Python
+echo DEBUG: Checking Python (python)...
+python --version
 if errorlevel 1 (
-    set PYTHON_CMD=py
-    !PYTHON_CMD! --version >nul 2>&1
+    echo DEBUG: python failed, checking (py)...
+    py --version
     if errorlevel 1 (
-        echo [ОШИБКА] Python не найден в системе!
-        echo.
-        echo Пожалуйста, установите Python 3.11 или выше:
-        echo https://www.python.org/downloads/
-        echo.
-        echo ПРИ УСТАНОВКЕ ОБЯЗАТЕЛЬНО ОТМЕТЬТЕ ГАЛОЧКУ:
-        echo "Add Python to PATH"
-        echo.
+        echo ERROR: No python found! Stop.
         pause
         exit /b 1
     )
+    set PYTHON_CMD=py
+) else (
+    set PYTHON_CMD=python
 )
 
-echo [OK] Использование команды: %PYTHON_CMD%
-%PYTHON_CMD% --version
-echo.
+echo DEBUG: Using command: %PYTHON_CMD%
+pause
 
-REM --- 2. ЗАПУСК SETUP.PY ---
-echo ======================================================================
-echo Запуск основного сценария установки...
-echo ======================================================================
-echo.
-
-if not exist "setup\setup.py" (
-    echo [ОШИБКА] Файл setup\setup.py не найден! 
-    echo Убедитесь, что вы запускаете install.bat из корня проекта.
-    pause
-    exit /b 1
-)
-
-%PYTHON_CMD% "setup\setup.py" %*
-
+echo DEBUG: Starting setup.py...
+%PYTHON_CMD% "setup\setup.py"
 if errorlevel 1 (
-    echo.
-    echo [ОШИБКА] Установка завершилась сбоем в Python-скрипте.
+    echo ERROR: setup.py failed!
     pause
     exit /b 1
 )
 
 echo.
-echo ======================================================================
-echo                    УСТАНОВКА УСПЕШНО ЗАВЕРШЕНА!
-echo ======================================================================
-echo.
-echo Для запуска веб-интерфейса выполните:
-echo     start_web.bat
-echo.
+echo SUCCESS: Installation finished.
 pause
