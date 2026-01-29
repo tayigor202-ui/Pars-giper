@@ -1,6 +1,9 @@
 # Pars-Giper Universal PowerShell Installer
 $ErrorActionPreference = "Stop"
 
+# Force TLS 1.2 (fixes "Could not create SSL/TLS secure channel" on older Windows)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "   PARS-GIPER UNIVERSAL INSTALLER (PS MODE)    " -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
