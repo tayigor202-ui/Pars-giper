@@ -12,3 +12,4 @@ selenium
 curl-cffi
 requests
 psutil
+apscheduler
