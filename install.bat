@@ -1,41 +1,88 @@
 @echo off
-echo ==========================================
-echo    PARS-GIPER INSTALLER (DEBUG MODE)
-echo ==========================================
-echo.
-echo DEBUG: Script started. Early pause incoming...
-pause
+setlocal enabledelayedexpansion
+chcp 65001 >nul
 
+:: Ensure we are in the script directory
 cd /d "%~dp0"
-echo DEBUG: Current directory: %cd%
 
-REM Check Python
-echo DEBUG: Checking Python (python)...
-python --version
-if errorlevel 1 (
-    echo DEBUG: python failed, checking (py)...
-    py --version
-    if errorlevel 1 (
-        echo ERROR: No python found! Stop.
-        pause
-        exit /b 1
-    )
-    set PYTHON_CMD=py
-) else (
-    set PYTHON_CMD=python
-)
-
-echo DEBUG: Using command: %PYTHON_CMD%
-pause
-
-echo DEBUG: Starting setup.py...
-%PYTHON_CMD% "setup\setup.py"
-if errorlevel 1 (
-    echo ERROR: setup.py failed!
-    pause
-    exit /b 1
-)
-
+echo ======================================================================
+echo            UNIVERSAL ONE-CLICK INSTALLER : PARS-GIPER
+echo ======================================================================
 echo.
-echo SUCCESS: Installation finished.
+
+:: 1. CHECK FOR PYTHON
+echo [1/4] Checking Python environment...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [!] Python not found. Starting automatic bootstrap...
+    
+    :: Try winget first (Standard on Win 10/11)
+    echo [SYSTEM] Attempting to install Python via winget...
+    winget install --id Python.Python.3.11 --exact --no-upgrade --accept-source-agreements --accept-package-agreements --silent
+    
+    if errorlevel 1 (
+        echo [SYSTEM] Winget failed or not available. Downloading Python installer manually...
+        set "PYTHON_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+        set "INSTALLER_EXE=python_installer.exe"
+        
+        curl -L -o !INSTALLER_EXE! !PYTHON_URL!
+        if errorlevel 1 (
+            echo [FATAL] Failed to download Python. Please check internet connection.
+            pause
+            exit /b 1
+        )
+        
+        echo [SYSTEM] Running silent installation (this may take a minute)...
+        start /wait !INSTALLER_EXE! /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
+        del !INSTALLER_EXE!
+    )
+    
+    echo.
+    echo [OK] Python installed successfully! 
+    echo [IMPORTANT] I need to RESTART this script to see the new Python path.
+    echo Please press any key, and then run install.bat AGAIN.
+    pause
+    exit /b 0
+)
+
+echo [OK] Python found: 
+python --version
+echo.
+
+:: 2. INSTALL DEPENDENCIES
+echo [2/4] Installing project libraries (requirements.txt)...
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+if errorlevel 1 (
+    echo [WARNING] Some libraries failed to install. Retrying...
+    python -m pip install -r requirements.txt --user
+)
+
+:: 3. SETUP DATABASE AND CONFIG
+echo [3/4] Initializing Database and Configuration...
+if not exist ".env" (
+    if exist ".env.example" (
+        copy .env.example .env
+        echo [OK] Created .env from example.
+    )
+)
+
+python setup\setup.py --silent
+if errorlevel 1 (
+    echo [!] Setup script encountered issues. Attempting repair...
+    python setup\setup_database_and_users.py
+)
+
+:: 4. FINALIZE
+echo.
+echo ======================================================================
+echo                    INSTALLATION COMPLETE!
+echo ======================================================================
+echo.
+echo You can now start the web interface using:
+echo     start_web.bat
+echo.
+echo Also, you can set up autostart (Run as Admin):
+echo     add_to_startup.bat
+echo.
 pause
