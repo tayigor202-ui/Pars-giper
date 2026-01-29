@@ -1,8 +1,9 @@
 # Pars-Giper Universal PowerShell Installer
 $ErrorActionPreference = "Stop"
 
-# Force TLS 1.2 (fixes "Could not create SSL/TLS secure channel" on older Windows)
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Force ALL security protocols using numeric values for older PowerShell compatibility
+# 3072 = TLS 1.2, 768 = TLS 1.1, 192 = TLS 1.0, 48 = SSL 3.0
+[Net.ServicePointManager]::SecurityProtocol = 48 -bor 192 -bor 768 -bor 3072
 
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "   PARS-GIPER UNIVERSAL INSTALLER (PS MODE)    " -ForegroundColor Cyan
@@ -20,7 +21,29 @@ if (!$pythonPath) {
     $output = Join-Path $env:TEMP "python_setup.exe"
     
     Write-Host "[SYSTEM] Downloading Python 3.11..." -ForegroundColor Gray
-    Invoke-WebRequest -Uri $url -OutFile $output
+    try {
+        # Try Invoke-WebRequest first
+        Invoke-WebRequest -Uri $url -OutFile $output -TimeoutSec 60
+    }
+    catch {
+        Write-Host "[!] Standard download failed. Trying fallback method..." -ForegroundColor Magenta
+        try {
+            # Fallback to WebClient
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($url, $output)
+        }
+        catch {
+            Write-Host ""
+            Write-Host "CRITICAL ERROR: Could not download Python automatically due to Windows SSL restrictions." -ForegroundColor Red
+            Write-Host "PLEASE DO THIS MANUALLY:" -ForegroundColor White
+            Write-Host "1. Download Python from: $url" -ForegroundColor Cyan
+            Write-Host "2. Install it and CHECK THE BOX 'Add Python to PATH'" -ForegroundColor Cyan
+            Write-Host "3. Then run this script again." -ForegroundColor White
+            Write-Host ""
+            Pause
+            exit
+        }
+    }
     
     Write-Host "[SYSTEM] Installing Python silently (1-2 mins)..." -ForegroundColor Gray
     $process = Start-Process -FilePath $output -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait -PassThru
