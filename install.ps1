@@ -10,6 +10,41 @@ Write-Host "   PARS-GIPER UNIVERSAL INSTALLER (PS MODE)    " -ForegroundColor Cy
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Helper for robust downloads
+function Download-File {
+    param([string]$Url, [string]$Output)
+    
+    Write-Host "[SYSTEM] Downloading: $Url" -ForegroundColor Gray
+    
+    # Try 1: Curl (Best for redirects and modern SSL)
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        Write-Host "   -> Engine: Curl" -ForegroundColor Cyan
+        & curl.exe -L -o $Output $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $Output)) { return $true }
+    }
+    
+    # Try 2: BITS (System background downloader, very robust)
+    Write-Host "   -> Engine: BITS (Background Intelligent Transfer)" -ForegroundColor Cyan
+    try {
+        Start-BitsTransfer -Source $Url -Destination $Output -Priority Foreground -ErrorAction Stop
+        return $true
+    }
+    catch {
+        Write-Host "      BITS failed: $($_.Exception.Message)" -ForegroundColor Gray
+    }
+    
+    # Try 3: Legacy Invoke-WebRequest
+    Write-Host "   -> Engine: WebClient (Legacy)" -ForegroundColor Cyan
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $Output -TimeoutSec 300
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 # 1. Check Python
 Write-Host "[1/3] Checking Python environment..." -ForegroundColor Yellow
 $pythonPath = Get-Command python -ErrorAction SilentlyContinue
@@ -20,42 +55,23 @@ if (!$pythonPath) {
     $url = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
     $output = Join-Path $env:TEMP "python_setup.exe"
     
-    Write-Host "[SYSTEM] Downloading Python 3.11..." -ForegroundColor Gray
-    try {
-        # Try Invoke-WebRequest first
-        Invoke-WebRequest -Uri $url -OutFile $output -TimeoutSec 60
+    if (Download-File -Url $url -Output $output) {
+        Write-Host "[SYSTEM] Installing Python silently (1-2 mins)..." -ForegroundColor Gray
+        Start-Process -FilePath $output -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+        Remove-Item $output
+        
+        Write-Host ""
+        Write-Host "[SUCCESS] Python installed!" -ForegroundColor Green
+        Write-Host "[IMPORTANT] You MUST restart this script to apply changes." -ForegroundColor White
+        Write-Host "Press any key to exit, then run install_ps.bat again."
+        $null = [System.Console]::ReadKey()
+        exit
     }
-    catch {
-        Write-Host "[!] Standard download failed. Trying fallback method..." -ForegroundColor Magenta
-        try {
-            # Fallback to WebClient
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($url, $output)
-        }
-        catch {
-            Write-Host ""
-            Write-Host "CRITICAL ERROR: Could not download Python automatically due to Windows SSL restrictions." -ForegroundColor Red
-            Write-Host "PLEASE DO THIS MANUALLY:" -ForegroundColor White
-            Write-Host "1. Download Python from: $url" -ForegroundColor Cyan
-            Write-Host "2. Install it and CHECK THE BOX 'Add Python to PATH'" -ForegroundColor Cyan
-            Write-Host "3. Then run this script again." -ForegroundColor White
-            Write-Host ""
-            Pause
-            exit
-        }
+    else {
+        Write-Host "CRITICAL ERROR: Could not download Python automatically." -ForegroundColor Red
+        Pause
+        exit
     }
-    
-    Write-Host "[SYSTEM] Installing Python silently (1-2 mins)..." -ForegroundColor Gray
-    $process = Start-Process -FilePath $output -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait -PassThru
-    
-    Remove-Item $output
-    
-    Write-Host ""
-    Write-Host "[SUCCESS] Python installed!" -ForegroundColor Green
-    Write-Host "[IMPORTANT] You MUST restart this script to apply changes." -ForegroundColor White
-    Write-Host "Press any key to exit, then run install_ps.bat again."
-    $null = [System.Console]::ReadKey()
-    exit
 }
 
 Write-Host "[OK] Python is ready." -ForegroundColor Green
@@ -69,41 +85,31 @@ $pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue
 if (!$pgService) {
     Write-Host "[!] PostgreSQL not found. Attempting automatic installation..." -ForegroundColor Red
     
-    # Try direct download + silent install
-    Write-Host "[SYSTEM] Downloading PostgreSQL installer (please wait)..." -ForegroundColor White
     $pgUrl = "https://sbp.enterprisedb.com/getinstaller.php?queryId=c18bc088031d9990df7f29013f99092d"
     $pgFile = Join-Path $env:TEMP "postgresql_installer.exe"
     
-    try {
-        Invoke-WebRequest -Uri $pgUrl -OutFile $pgFile -TimeoutSec 300
-    }
-    catch {
-        try {
-            $webClient = New-Object System.Net.WebClient
-            $webClient.DownloadFile($pgUrl, $pgFile)
+    if (Download-File -Url $pgUrl -Output $pgFile) {
+        Write-Host "[SYSTEM] Starting silent installation (2-4 mins)..." -ForegroundColor Yellow
+        Write-Host "[WAIT] DO NOT CLOSE THIS WINDOW. Installs PostgreSQL and sets password to 'postgres'." -ForegroundColor Gray
+        
+        $installerArgs = "--mode unattended --unattendedmodeui none --superpassword postgres --serverport 5432"
+        $p = Start-Process -FilePath $pgFile -ArgumentList $installerArgs -Wait -PassThru
+        
+        if ($p.ExitCode -eq 0) {
+            Write-Host "[OK] PostgreSQL installed and service started." -ForegroundColor Green
+            Remove-Item $pgFile
         }
-        catch {
-            Write-Host "[!] Automatic download failed. Please install manually." -ForegroundColor Red
-            Write-Host "Link: $pgUrl"
+        else {
+            Write-Host "[ERROR] Installation failed with exit code: $($p.ExitCode)" -ForegroundColor Red
             Pause
             exit
         }
     }
-
-    Write-Host "[SYSTEM] Starting silent installation (2-4 mins)..." -ForegroundColor Yellow
-    Write-Host "[WAIT] DO NOT CLOSE THIS WINDOW. Installs PostgreSQL and sets password to 'postgres'." -ForegroundColor Gray
-    
-    $args = "--mode unattended --unattendedmodeui none --superpassword postgres --serverport 5432"
-    $p = Start-Process -FilePath $pgFile -ArgumentList $args -Wait -PassThru
-    
-    if ($p.ExitCode -ne 0) {
-        Write-Host "[ERROR] Installation failed with exit code: $($p.ExitCode)" -ForegroundColor Red
+    else {
+        Write-Host "[!] All download engines failed. Please install manually." -ForegroundColor Red
         Pause
         exit
     }
-
-    Remove-Item $pgFile
-    Write-Host "[OK] PostgreSQL installed and service started." -ForegroundColor Green
 }
 else {
     Write-Host "[OK] PostgreSQL service found: $($pgService.DisplayName)" -ForegroundColor Green
