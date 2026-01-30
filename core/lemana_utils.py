@@ -59,49 +59,23 @@ LEMANA_REGION_SUBDOMAINS = {
 def get_lemana_regional_url(base_url, region_id):
     """
     Adjusts the Lemana Pro URL based on the region_id.
+    Simply replaces the subdomain (e.g., spb → klin) without adding query parameters.
     :param base_url: The original product URL
     :param region_id: The target region ID (int)
-    :return: Formatted URL with subdomain and fromRegion parameter
+    :return: URL with replaced subdomain
     """
     if not base_url or 'lemanapro.ru' not in base_url:
         return base_url
     
     import re
-    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-
-    if not base_url or 'lemanapro.ru' not in base_url:
-        return base_url
 
     region_id = int(region_id)
     subdomain = LEMANA_REGION_SUBDOMAINS.get(region_id)
-
-    # Parse URL
-    parsed = urlparse(base_url)
     
-    # 1. Hostname Logic
-    # Always normalize to base domain 'lemanapro.ru' first, then add subdomain
-    # This regex removes any existing subdomain (e.g. www, moscow, klin)
-    new_netloc = re.sub(r'^([^@/:]+)\.lemanapro\.ru', 'lemanapro.ru', parsed.netloc)
-    
-    if subdomain and region_id != 34: # 34 is usually main domain or moscow, but main uses no subdomain
-        new_netloc = f"{subdomain}.{new_netloc}"
+    # Remove any existing subdomain and replace with the new one
+    # Pattern matches: spb.lemanapro.ru, moscow.lemanapro.ru, or just lemanapro.ru
+    new_url = re.sub(r'^(https?://)([^.]+\.)?lemanapro\.ru', 
+                     f'\\1{subdomain}.lemanapro.ru' if subdomain and region_id != 34 else '\\1lemanapro.ru',
+                     base_url)
         
-    # 2. Query Params Logic
-    query_params = parse_qs(parsed.query)
-    # Set/Override fromRegion
-    query_params['fromRegion'] = [str(region_id)]
-    
-    # Reconstruct query string
-    new_query = urlencode(query_params, doseq=True)
-    
-    # Reconstruct full URL
-    final_url = urlunparse((
-        parsed.scheme,
-        new_netloc,
-        parsed.path,
-        parsed.params,
-        new_query,
-        parsed.fragment
-    ))
-        
-    return final_url
+    return new_url

@@ -12,6 +12,9 @@ from datetime import datetime
 
 load_dotenv()
 
+# Define project root (parent of parsers/ directory)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def find_chrome():
     """Find chrome executable automatically"""
     env_path = os.getenv('CHROME_PATH')
