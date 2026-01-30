@@ -46,7 +46,7 @@ def main():
         # Load tasks from DB
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT sku, competitor_name, sp_code, url FROM public.lemana_prices WHERE sku IS NOT NULL")
+        cur.execute("SELECT sku, competitor_name, sp_code, url, ric_leroy_price FROM public.lemana_prices WHERE sku IS NOT NULL")
         items = cur.fetchall()
         cur.close()
         conn.close()
@@ -58,7 +58,10 @@ def main():
         print(f"[INFO] Found {len(items)} items to parse.")
         
         # Convert to list of dicts for the engine
-        skus_list = [{"sku": i[0], "competitor": i[1], "sp_code": i[2], "url": i[3]} for i in items]
+        skus_list = [
+            {"sku": i[0], "competitor": i[1], "sp_code": i[2], "url": i[3], "ric_leroy_price": i[4]} 
+            for i in items
+        ]
         
         # Run parsing
         run_lemana_parsing(skus_list)

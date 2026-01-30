@@ -17,7 +17,16 @@ def generate_lemana_report():
     try:
         conn = psycopg2.connect(DB_URL)
         query = """
-            SELECT sku, name, competitor_name, price_card, status, sp_code, created_at
+            SELECT 
+                sku as "SKU", 
+                name as "Наименование", 
+                competitor_name as "Конкурент", 
+                price as "Цена", 
+                ric_leroy_price as "РИЦ Леруа",
+                CASE WHEN violation_detected THEN 'ДА' ELSE 'Нет' END as "Нарушение",
+                violation_screenshot as "Скриншот",
+                sp_code as "СП-Код", 
+                last_updated as "Дата обновления"
             FROM public.lemana_prices 
             ORDER BY sp_code, competitor_name
         """
@@ -27,6 +36,10 @@ def generate_lemana_report():
         if len(df) == 0:
             print("[EXCEL] No Lemana data to report")
             return None
+        
+        # Add a clickable link for screenshots if they exist
+        # We assume local file access for now, or we could prefix with a base URL
+        # For simplicity, we just keep the path
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"lemana_prices_report_{timestamp}.xlsx"
@@ -38,6 +51,7 @@ def generate_lemana_report():
             # Styles
             header_fill = PatternFill(start_color="008C45", end_color="008C45", fill_type="solid") # Green for Lemana (Leroy)
             header_font = Font(bold=True, color="FFFFFF", size=11)
+            violation_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid") # Light red
             border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
             
             # Apply header styles
@@ -49,17 +63,30 @@ def generate_lemana_report():
                 
             # Set column widths
             ws.column_dimensions['A'].width = 15  # SKU
-            ws.column_dimensions['B'].width = 40  # Name
-            ws.column_dimensions['C'].width = 25  # Competitor
-            ws.column_dimensions['D'].width = 15  # Price
-            ws.column_dimensions['E'].width = 15  # Status
-            ws.column_dimensions['F'].width = 15  # SP-KOD
-            ws.column_dimensions['G'].width = 20  # Date
+            ws.column_dimensions['B'].width = 45  # Name
+            ws.column_dimensions['C'].width = 20  # Competitor
+            ws.column_dimensions['D'].width = 12  # Price
+            ws.column_dimensions['E'].width = 12  # RIC
+            ws.column_dimensions['F'].width = 12  # Violation
+            ws.column_dimensions['G'].width = 40  # Screenshot
+            ws.column_dimensions['H'].width = 15  # SP-KOD
+            ws.column_dimensions['I'].width = 20  # Date
             
-            # Apply borders to all cells
-            for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=7):
+            # Apply borders and highlight violations
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=9), start=2):
+                is_violation = ws.cell(row=row_idx, column=6).value == 'ДА'
                 for cell in row:
                     cell.border = border
+                    if is_violation:
+                        cell.fill = violation_fill
+                
+                # Make screenshot cell a hyperlink if it has a value
+                screenshot_cell = ws.cell(row=row_idx, column=7)
+                if screenshot_cell.value:
+                    val = screenshot_cell.value
+                    # If it's a relative path, we can try to make it a link
+                    # For now keep it as text but highlighted
+                    screenshot_cell.font = Font(color="0000FF", underline="single")
             
             ws.freeze_panes = 'A2'
             ws.auto_filter.ref = ws.dimensions

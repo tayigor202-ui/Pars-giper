@@ -102,10 +102,10 @@ class LemanaSilentParser:
         options.add_argument("--disable-webgl")
         options.add_argument("--mute-audio")
         
-        # Disable images to save bandwidth and CPU
+        # Enable images for evidence screenshots
         prefs = {
-            "profile.managed_default_content_settings.images": 2,
-            "profile.default_content_settings.images": 2
+            "profile.managed_default_content_settings.images": 1,
+            "profile.default_content_settings.images": 1
         }
         options.add_experimental_option("prefs", prefs)
         
@@ -308,23 +308,28 @@ class LemanaSilentParser:
             print(f"[LEMANA] Error processing {product_url}: {e}")
             return None
 
-    def save_to_db(self, sku, price, stock, name=None, region_id=34, url=None):
+    def save_to_db(self, sku, price, stock, name=None, region_id=34, url=None, violation=False, screenshot=None):
         """Saves parsed data to the database."""
         try:
             conn = psycopg2.connect(DB_URL)
             cur = conn.cursor()
             
             cur.execute("""
-                INSERT INTO public.lemana_prices (sku, price, stock, name, last_updated, region_id, url, competitor_name)
-                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s, 'Lemana Pro')
+                INSERT INTO public.lemana_prices (
+                    sku, price, stock, name, last_updated, region_id, url, 
+                    competitor_name, violation_detected, violation_screenshot
+                )
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s, %s, 'Lemana Pro', %s, %s)
                 ON CONFLICT (sku, competitor_name, region_id) 
                 DO UPDATE SET 
                     price = EXCLUDED.price,
                     stock = EXCLUDED.stock,
                     name = COALESCE(EXCLUDED.name, lemana_prices.name),
                     last_updated = CURRENT_TIMESTAMP,
-                    url = COALESCE(EXCLUDED.url, lemana_prices.url)
-            """, (sku, price, stock, name, region_id, url))
+                    url = COALESCE(EXCLUDED.url, lemana_prices.url),
+                    violation_detected = EXCLUDED.violation_detected,
+                    violation_screenshot = EXCLUDED.violation_screenshot
+            """, (sku, price, stock, name, region_id, url, violation, screenshot))
             
             conn.commit()
             cur.close()
@@ -361,14 +366,47 @@ def process_region_task(skus_list, region_id, headless=True):
         for item in skus_list:
             sku = item['sku']
             url = item.get('url') or sku
+            ric_price = item.get('ric_leroy_price')
             
             # Start timer for product
             start_t = time.time()
             data = parser.get_product_data(url, region_id=region_id)
             if data:
-                parser.save_to_db(sku, data['price'], 1, name=data['name'], region_id=region_id, url=data.get('url'))
+                price = data['price']
+                violation = False
+                screenshot_rel_path = None
+                
+                # Violation detection: price < ric_price
+                if ric_price and float(price) < float(ric_price):
+                    violation = True
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    screenshot_dir = os.path.join(ROOT_DIR, 'static', 'screenshots', 'lemana')
+                    if not os.path.exists(screenshot_dir):
+                        os.makedirs(screenshot_dir, exist_ok=True)
+                    
+                    filename = f"violation_{sku}_{region_id}_{timestamp}.png"
+                    screenshot_path = os.path.join(screenshot_dir, filename)
+                    
+                    try:
+                        parser.driver.save_screenshot(screenshot_path)
+                        # Relative path for the web app/Excel
+                        screenshot_rel_path = f"static/screenshots/lemana/{filename}"
+                        print(f"[VIOLATION] 📸 Screenshot saved for {sku}: {price} < {ric_price}")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to take screenshot: {e}")
+                
+                parser.save_to_db(
+                    sku, price, 1, 
+                    name=data['name'], 
+                    region_id=region_id, 
+                    url=data.get('url'),
+                    violation=violation,
+                    screenshot=screenshot_rel_path
+                )
+                
                 elapsed = time.time() - start_t
-                print(f"[LEMANA] OK (Region {region_id}): {sku} -> {data['price']} руб. ({elapsed:.1f}s)")
+                status_msg = "VIOLATION" if violation else "OK"
+                print(f"[LEMANA] {status_msg} (Region {region_id}): {sku} -> {price} руб. ({elapsed:.1f}s)")
             else:
                 # Capture failures without verbose snippets unless critical
                 print(f"[LEMANA] FAIL (Region {region_id}): {sku}")

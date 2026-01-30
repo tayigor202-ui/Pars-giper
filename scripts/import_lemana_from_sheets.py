@@ -93,6 +93,7 @@ def load_from_google_sheets():
         # Identify columns
         sp_kod_col = None
         name_col = None
+        ric_leroy_col = None
         
         for col in df.columns:
             col_lower = col.lower().strip()
@@ -101,6 +102,8 @@ def load_from_google_sheets():
             elif any(word in col_lower for word in ['номенклатура', 'наименование', 'название', 'name']):
                 if name_col is None:
                     name_col = col
+            elif 'риц леруа' in col_lower:
+                ric_leroy_col = col
 
         # Fallbacks
         if sp_kod_col is None: sp_kod_col = df.columns[2] if len(df.columns) > 2 else df.columns[0]
@@ -138,6 +141,16 @@ def load_from_google_sheets():
             name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ''
             
             if not sp_kod or sp_kod == 'nan': continue
+            
+            # Extract RIC Leroy price
+            ric_leroy = None
+            if ric_leroy_col:
+                val = str(row[ric_leroy_col])
+                val_cleaned = "".join(c for c in val if c.isdigit() or c == '.' or c == ',').replace(',', '.')
+                try:
+                    ric_leroy = float(val_cleaned)
+                except:
+                    ric_leroy = None
             
             # Find the best SKU for Lemana Pro
             lemana_sku = None
@@ -188,14 +201,15 @@ def load_from_google_sheets():
                      full_url = f"https://lemanapro.ru/product/{lemana_sku}/"
                 
                 cur.execute("""
-                    INSERT INTO public.lemana_prices (sku, name, competitor_name, sp_code, region_id, url) 
-                    VALUES (%s, %s, %s, %s, 34, %s)
+                    INSERT INTO public.lemana_prices (sku, name, competitor_name, sp_code, region_id, url, ric_leroy_price) 
+                    VALUES (%s, %s, %s, %s, 34, %s, %s)
                     ON CONFLICT (sku, competitor_name, region_id) 
                     DO UPDATE SET 
                         name = EXCLUDED.name,
                         sp_code = EXCLUDED.sp_code,
-                        url = EXCLUDED.url
-                """, (lemana_sku, name if name else None, 'Lemana Pro', sp_kod, full_url))
+                        url = EXCLUDED.url,
+                        ric_leroy_price = EXCLUDED.ric_leroy_price
+                """, (lemana_sku, name if name else None, 'Lemana Pro', sp_kod, full_url, ric_leroy))
                 total_skus += 1
             
             imported_products += 1
