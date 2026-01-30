@@ -1,9 +1,10 @@
 """
 Direct database setup without .env file issues
-Creates database and admin user
+Creates database and all required tables
 """
 import psycopg2
 import bcrypt
+import os
 
 print("\n" + "="*70)
 print("DIRECT DATABASE SETUP")
@@ -56,24 +57,25 @@ try:
     # Check if database exists
     cur.execute("SELECT 1 FROM pg_database WHERE datname='ozon_parser'")
     if cur.fetchone():
-        print("   Database already exists")
+        print("   Database 'ozon_parser' already exists")
     else:
         cur.execute("CREATE DATABASE ozon_parser")
-        print("   Database created successfully")
+        print("   Database 'ozon_parser' created successfully")
     
     cur.close()
     conn.close()
 except Exception as e:
-    print(f"   ERROR: {e}")
+    print(f"   ERROR creating database: {e}")
     exit(1)
 
-# Create users table
-print("\n3. Creating users table...")
+# Create tables
+print("\n3. Initializing tables...")
 try:
     conn = psycopg2.connect(database='ozon_parser', **conn_params)
     cur = conn.cursor()
     
     # Create users table
+    print("   Creating users table...")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS public.users (
             id SERIAL PRIMARY KEY,
@@ -94,15 +96,70 @@ try:
             can_manage_users BOOLEAN DEFAULT FALSE
         )
     """)
+    
+    # Create OZON prices table
+    print("   Creating ozon prices table...")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS public.prices (
+            sku TEXT,
+            competitor_name TEXT,
+            price_card NUMERIC,
+            price_nocard NUMERIC,
+            price_old NUMERIC,
+            name TEXT,
+            status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sp_code TEXT,
+            PRIMARY KEY (sku, competitor_name)
+        )
+    """)
+    
+    # Create WB prices table
+    print("   Creating wb prices table...")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS public.wb_prices (
+            sku TEXT,
+            competitor_name TEXT,
+            price_card NUMERIC,
+            price_nocard NUMERIC,
+            price_old NUMERIC,
+            name TEXT,
+            status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sp_code TEXT,
+            PRIMARY KEY (sku, competitor_name)
+        )
+    """)
+    
+    # Create Lemana Pro prices table
+    print("   Creating lemana prices table...")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS public.lemana_prices (
+            id SERIAL PRIMARY KEY,
+            sku TEXT NOT NULL,
+            name TEXT,
+            sp_code TEXT,
+            competitor_name TEXT NOT NULL,
+            price NUMERIC,
+            stock INT,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            region_id INT NOT NULL DEFAULT 34,
+            url TEXT
+        )
+    """)
+    # Unique index for Lemana
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_lemana_prices_unique ON public.lemana_prices (sku, competitor_name, region_id)")
+    
     conn.commit()
-    print("   Table created successfully")
+    print("   All tables initialized successfully")
     
     # Check if admin user exists
+    print("\n4. Checking admin user...")
     cur.execute("SELECT id FROM public.users WHERE username='admin'")
     if cur.fetchone():
-        print("\n4. Admin user already exists")
+        print("   Admin user already exists")
     else:
-        print("\n4. Creating admin user...")
+        print("   Creating admin user...")
         # Hash password
         password_hash = bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
@@ -126,7 +183,7 @@ try:
         print("   WARNING: Change password in production!")
     
     # Show all users
-    print("\n5. Current users:")
+    print("\n5. Current users in database:")
     cur.execute("SELECT id, username, full_name, is_active FROM public.users")
     users = cur.fetchall()
     for user in users:
@@ -138,12 +195,12 @@ try:
     
     print("\n" + "="*70)
     print("SETUP COMPLETE!")
-    print("You can now login to http://localhost:3454")
+    print("You can now login to http://localhost:3455")
     print("Username: admin")
     print("Password: admin")
     print("="*70 + "\n")
     
 except Exception as e:
-    print(f"   ERROR: {e}")
+    print(f"   ERROR initializing tables: {e}")
     import traceback
     traceback.print_exc()
