@@ -69,25 +69,41 @@ $pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue
 if (!$pgService) {
     Write-Host "[!] PostgreSQL not found. Attempting automatic installation..." -ForegroundColor Red
     
-    # Try winget
-    Write-Host "[SYSTEM] Attempting install via winget..." -ForegroundColor Gray
+    # Try direct download + silent install
+    Write-Host "[SYSTEM] Downloading PostgreSQL installer (please wait)..." -ForegroundColor White
+    $pgUrl = "https://sbp.enterprisedb.com/getinstaller.php?queryId=c18bc088031d9990df7f29013f99092d"
+    $pgFile = Join-Path $env:TEMP "postgresql_installer.exe"
+    
     try {
-        winget install --id PostgreSQL.PostgreSQL --silent --accept-package-agreements --accept-source-agreements
-        Write-Host "[OK] PostgreSQL installation started. Please wait for the service to start." -ForegroundColor Green
-        Write-Host "NOTE: It might take a minute for the service to be fully ready."
+        Invoke-WebRequest -Uri $pgUrl -OutFile $pgFile -TimeoutSec 300
     }
     catch {
-        Write-Host ""
-        Write-Host "CRITICAL ERROR: Could not install PostgreSQL automatically." -ForegroundColor Red
-        Write-Host "PLEASE DO THIS MANUALLY:" -ForegroundColor White
-        Write-Host "1. Download installer: https://www.enterprisedb.com/downloads/postgres-postgresql-downloads" -ForegroundColor Cyan
-        Write-Host "2. Install with default settings." -ForegroundColor Cyan
-        Write-Host "3. IMPORTANT: Set password to 'postgres' (or match your .env)" -ForegroundColor Cyan
-        Write-Host "4. Then run this script again." -ForegroundColor White
-        Write-Host ""
+        try {
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($pgUrl, $pgFile)
+        }
+        catch {
+            Write-Host "[!] Automatic download failed. Please install manually." -ForegroundColor Red
+            Write-Host "Link: $pgUrl"
+            Pause
+            exit
+        }
+    }
+
+    Write-Host "[SYSTEM] Starting silent installation (2-4 mins)..." -ForegroundColor Yellow
+    Write-Host "[WAIT] DO NOT CLOSE THIS WINDOW. Installs PostgreSQL and sets password to 'postgres'." -ForegroundColor Gray
+    
+    $args = "--mode unattended --unattendedmodeui none --superpassword postgres --serverport 5432"
+    $p = Start-Process -FilePath $pgFile -ArgumentList $args -Wait -PassThru
+    
+    if ($p.ExitCode -ne 0) {
+        Write-Host "[ERROR] Installation failed with exit code: $($p.ExitCode)" -ForegroundColor Red
         Pause
         exit
     }
+
+    Remove-Item $pgFile
+    Write-Host "[OK] PostgreSQL installed and service started." -ForegroundColor Green
 }
 else {
     Write-Host "[OK] PostgreSQL service found: $($pgService.DisplayName)" -ForegroundColor Green
