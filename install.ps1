@@ -62,15 +62,47 @@ Write-Host "[OK] Python is ready." -ForegroundColor Green
 python --version
 Write-Host ""
 
-# 2. Install Libraries
-Write-Host "[2/3] Installing dependencies..." -ForegroundColor Yellow
+# 2. Check PostgreSQL
+Write-Host "[2/4] Checking PostgreSQL database..." -ForegroundColor Yellow
+$pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue
+
+if (!$pgService) {
+    Write-Host "[!] PostgreSQL not found. Attempting automatic installation..." -ForegroundColor Red
+    
+    # Try winget
+    Write-Host "[SYSTEM] Attempting install via winget..." -ForegroundColor Gray
+    try {
+        winget install --id PostgreSQL.PostgreSQL --silent --accept-package-agreements --accept-source-agreements
+        Write-Host "[OK] PostgreSQL installation started. Please wait for the service to start." -ForegroundColor Green
+        Write-Host "NOTE: It might take a minute for the service to be fully ready."
+    }
+    catch {
+        Write-Host ""
+        Write-Host "CRITICAL ERROR: Could not install PostgreSQL automatically." -ForegroundColor Red
+        Write-Host "PLEASE DO THIS MANUALLY:" -ForegroundColor White
+        Write-Host "1. Download installer: https://www.enterprisedb.com/downloads/postgres-postgresql-downloads" -ForegroundColor Cyan
+        Write-Host "2. Install with default settings." -ForegroundColor Cyan
+        Write-Host "3. IMPORTANT: Set password to 'postgres' (or match your .env)" -ForegroundColor Cyan
+        Write-Host "4. Then run this script again." -ForegroundColor White
+        Write-Host ""
+        Pause
+        exit
+    }
+}
+else {
+    Write-Host "[OK] PostgreSQL service found: $($pgService.DisplayName)" -ForegroundColor Green
+}
+Write-Host ""
+
+# 3. Install Libraries
+Write-Host "[3/4] Installing dependencies..." -ForegroundColor Yellow
 & python -m pip install --upgrade pip
 & python -m pip install -r requirements.txt
 Write-Host "[OK] Libraries installed." -ForegroundColor Green
 Write-Host ""
 
-# 3. Setup Project
-Write-Host "[3/3] Finalizing configuration..." -ForegroundColor Yellow
+# 4. Setup Project
+Write-Host "[4/4] Finalizing configuration..." -ForegroundColor Yellow
 if (!(Test-Path ".env")) {
     if (Test-Path ".env.example") {
         Copy-Item ".env.example" ".env"

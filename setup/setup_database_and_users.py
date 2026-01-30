@@ -29,7 +29,10 @@ for params in connection_attempts:
         print(" SUCCESS!")
         break
     except Exception as e:
-        print(f" Failed ({str(e)[:30]})")
+        print(f" Failed")
+        print(f"      Detailed error: {e}")
+        if "Connection refused" in str(e):
+            print("      HINT: PostgreSQL service might not be running or not installed.")
 
 if not conn_params:
     print("\nERROR: Could not connect to PostgreSQL with common credentials")
