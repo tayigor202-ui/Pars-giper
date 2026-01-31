@@ -12,15 +12,24 @@
         rel="stylesheet">
     <style>
         :root {
+            --paper-base: #f5f2e8;
+            /* Cream base */
+            --paper-tint: #efe9d9;
+            /* Brownish tint */
+            --grid-line: rgba(139, 69, 19, 0.1);
+            /* Subtle brown grid */
+            --major-grid: rgba(139, 69, 19, 0.2);
+            --ink-color: #3b2b1d;
+            /* Dark brown ink */
+            --metal-base: #1e2229;
+            --metal-highlight: #2c313a;
+            --metal-shadow: #0a0c10;
             --brand-primary: #6366f1;
-            --brand-secondary: #a855f7;
-            --bg-deep: #0a0b10;
-            --glass-bg: rgba(15, 16, 22, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.05);
-            --text-primary: #ffffff;
-            --text-secondary: #94a3b8;
-            --card-radius: 24px;
-            --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            --text-primary: #1a1a1a;
+            --text-secondary: #5c4b3a;
+            /* Brownish gray for secondary text */
+            --panel-radius: 12px;
+            --transition-tactile: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         * {
@@ -30,46 +39,74 @@
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg-deep);
-            background-image: radial-gradient(circle at top left, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at bottom right, rgba(168, 85, 247, 0.1) 0%, transparent 40%);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--paper-base);
+            /* Vintage Notebook / Aged Paper Grid */
+            background-image:
+                /* Minor Grid */
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+                /* Major Grid (Notebook style) */
+                linear-gradient(var(--major-grid) 2px, transparent 2px),
+                linear-gradient(90deg, var(--major-grid) 2px, transparent 2px),
+                /* Paper Texture/Tint Shader */
+                linear-gradient(180deg, var(--paper-base) 0%, var(--paper-tint) 100%);
+            background-size: 25px 25px, 25px 25px, 125px 125px, 125px 125px, 100% 100%;
             background-attachment: fixed;
             min-height: 100vh;
-            color: var(--text-primary);
+            color: #1a1a1a;
+            /* Darker text for light background */
             overflow-x: hidden;
             display: flex;
             flex-direction: column;
             line-height: 1.6;
-            transition: opacity 0.3s ease;
         }
 
-        /* Custom Scrollbar */
+        /* Physical Extrusion Utility */
+        .skeu-raised {
+            background: linear-gradient(145deg, var(--metal-highlight), var(--metal-shadow));
+            box-shadow:
+                8px 8px 16px var(--metal-shadow),
+                -4px -4px 12px rgba(255, 255, 255, 0.03),
+                inset 1px 1px 0px rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(0, 0, 0, 0.3);
+        }
+
+        .skeu-recessed {
+            background: #0d0f14;
+            box-shadow:
+                inset 4px 4px 8px #050505,
+                inset -1px -1px 2px rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.02);
+        }
+
+        /* Custom Scrollbar (Recessed Slot) */
         ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 12px;
         }
 
         ::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.2);
+            background: #0a0c10;
+            box-shadow: inset 2px 2px 5px #000;
         }
 
         ::-webkit-scrollbar-thumb {
-            background: rgba(99, 102, 241, 0.3);
-            border-radius: 10px;
-            transition: var(--transition-smooth);
+            background: linear-gradient(90deg, #2c313a, #1e2229);
+            border: 1px solid #333;
+            border-radius: 6px;
+            box-shadow: 1px 1px 2px #000;
         }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(99, 102, 241, 0.5);
-        }
-
-        /* Float Navigation */
+        /* Light Knitted Navigation Rack */
         .navbar {
-            background: rgba(15, 16, 22, 0.8) !important;
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
-            padding: 1rem 0;
+            background-color: #fdfcf9;
+            /* Light Soft Wool */
+            background-image:
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.01) 0px, rgba(0, 0, 0, 0.01) 1px, transparent 1px, transparent 4px),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0));
+            border-bottom: 2px solid #e0d9c4;
+            box-shadow: 0 4px 12px rgba(139, 69, 19, 0.08);
+            padding: 0.5rem 0;
             position: sticky;
             top: 0;
             z-index: 1000;
@@ -77,205 +114,525 @@
 
         .navbar-brand {
             font-family: 'Outfit', sans-serif;
-            font-weight: 800;
+            font-weight: 900;
             font-size: 1.5rem;
-            letter-spacing: -0.5px;
-            color: var(--text-primary) !important;
+            /* Knitted Logo Text */
+            background-image:
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1) 0px, rgba(255, 255, 255, 0.1) 1px, transparent 1px, transparent 4px),
+                linear-gradient(to bottom, #fff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(2px 2px 0px #000);
             display: flex;
             align-items: center;
             gap: 12px;
-        }
-
-        .navbar-brand i {
-            color: var(--brand-primary);
-            font-size: 1.8rem;
+            letter-spacing: -0.5px;
         }
 
         .nav-link {
-            color: var(--text-secondary) !important;
-            font-weight: 500;
+            color: #94a3b8 !important;
+            font-weight: 800;
             padding: 0.6rem 1.2rem !important;
-            border-radius: 12px;
-            transition: var(--transition-smooth);
             margin: 0 4px;
+            border-radius: 12px;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1.5px;
+            position: relative;
+            /* Yarn-like border */
+            border: 2px solid transparent;
         }
 
-        .nav-link:hover,
+        .nav-link:hover {
+            color: #fff !important;
+            background: rgba(99, 102, 241, 0.1);
+            border-color: rgba(99, 102, 241, 0.2);
+            transform: translateY(-1px);
+        }
+
         .nav-link.active {
-            color: var(--text-primary) !important;
-            background: rgba(255, 255, 255, 0.05);
+            color: #fff !important;
+            background-color: #4f46e5;
+            background-image:
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px),
+                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px);
+            box-shadow:
+                0 4px 0px #312e81,
+                inset 1px 1px 2px rgba(255, 255, 255, 0.2);
+            border-color: rgba(0, 0, 0, 0.1);
         }
 
-        /* Bento Cards */
+        /* Light Knitted Wool Modules (Cards) */
         .main-card {
-            background: var(--glass-bg);
-            backdrop-filter: blur(40px);
-            border-radius: var(--card-radius);
-            border: 1px solid var(--glass-border);
+            background-color: #fdfcf9;
+            /* Light Soft Wool */
+            background-image:
+                /* V-Stitch procedural pattern for wool */
+                repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.02) 0px, rgba(0, 0, 0, 0.02) 1px, transparent 1px, transparent 10px),
+                repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.02) 0px, rgba(0, 0, 0, 0.02) 1px, transparent 1px, transparent 10px);
+            border-radius: 20px;
             padding: 2.5rem;
-            transition: var(--transition-smooth);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
             margin-bottom: 2rem;
+            border: 2px solid #e5e1d1;
+            box-shadow:
+                8px 8px 16px rgba(139, 69, 19, 0.1),
+                /* Slightly warm shadow on paper */
+                inset 2px 2px 0px rgba(255, 255, 255, 0.8);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .main-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url("https://www.transparenttextures.com/patterns/felt.png");
+            opacity: 0.08;
+            pointer-events: none;
+        }
+
+        .main-card::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            right: 2px;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: var(--panel-radius);
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 2rem;
-            transition: var(--transition-smooth);
+            background-color: #fcfaf5;
+            background-image:
+                repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.03) 0px, rgba(0, 0, 0, 0.03) 1px, transparent 1px, transparent 8px),
+                repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.03) 0px, rgba(0, 0, 0, 0.03) 1px, transparent 1px, transparent 8px);
+            border-radius: 18px;
+            padding: 1.5rem;
+            border: 2px solid #e0d9c4;
+            box-shadow:
+                4px 4px 8px rgba(139, 69, 19, 0.08),
+                inset 1px 1px 0px #fff;
+            transition: var(--transition-tactile);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url("https://www.transparenttextures.com/patterns/felt.png");
+            opacity: 0.1;
+            pointer-events: none;
         }
 
         .stat-card:hover {
-            background: rgba(255, 255, 255, 0.05);
-            transform: translateY(-8px);
-            border-color: rgba(255, 255, 255, 0.15);
+            transform: scale(1.02);
+            box-shadow: 6px 6px 12px #040507;
         }
 
         .stat-label {
             color: var(--text-secondary);
-            font-size: 0.9rem;
-            font-weight: 600;
+            font-size: 0.75rem;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
+            /* Embroidered Label Effect */
+            text-shadow: 1px 1px 0px rgba(255, 255, 255, 0.8);
             margin-bottom: 0.5rem;
+            position: relative;
+            z-index: 1;
         }
 
         .stat-value {
             font-family: 'Outfit', sans-serif;
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-
-        /* Modern Buttons */
-        .btn-action {
-            background: var(--brand-primary);
-            color: white;
-            border: none;
-            border-radius: 14px;
-            padding: 0.8rem 2rem;
-            font-weight: 600;
-            transition: var(--transition-smooth);
-        }
-
-        .btn-action:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
-            background: #5053e1;
-            color: white;
-        }
-
-        .btn-premium {
-            background: rgba(255, 255, 255, 0.05);
-            color: #ffffff;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            padding: 0.75rem 1.5rem;
-            font-weight: 500;
-            transition: var(--transition-smooth);
-            cursor: pointer;
-        }
-
-        .btn-premium:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-            color: white;
-        }
-
-        .btn-premium:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-danger-premium {
-            background: rgba(220, 38, 38, 0.1);
-            color: #fca5a5;
-            border: 1px solid rgba(220, 38, 38, 0.3);
-            border-radius: 12px;
-            padding: 0.75rem 1.5rem;
-            font-weight: 500;
-            transition: var(--transition-smooth);
-            cursor: pointer;
-        }
-
-        .btn-danger-premium:hover {
-            background: rgba(220, 38, 38, 0.2);
-            border-color: rgba(220, 38, 38, 0.5);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(220, 38, 38, 0.2);
-            color: #fca5a5;
-        }
-
-        .btn-danger-premium:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none;
+            font-size: 2.2rem;
+            font-weight: 900;
+            /* Light Embroidered Number Style */
+            background-image:
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0px, rgba(0, 0, 0, 0.05) 1px, transparent 1px, transparent 4px),
+                linear-gradient(to bottom, #3b2b1d, #5c4b3a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(1px 1px 0px rgba(255, 255, 255, 0.8));
+            letter-spacing: -1px;
+            position: relative;
+            z-index: 1;
         }
 
         .page-title {
-            font-family: 'Outfit', sans-serif;
-            font-size: 2.5rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -1px;
+            /* Brown Embroidered Heading */
+            background-image:
+                repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.05) 0px, rgba(0, 0, 0, 0.05) 1px, transparent 1px, transparent 6px),
+                linear-gradient(to right, #3b2b1d, #5c4b3a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(1px 1px 0px rgba(255, 255, 255, 0.8));
+        }
+
+        /* Knitted Woolen Buttons (Yarn Style) */
+        .btn-premium,
+        .btn-action {
+            position: relative;
+            background-color: #6366f1;
+            /* Base wool color */
+            background-image:
+                /* Horizontal Yarn Strands */
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.1) 0px, rgba(0, 0, 0, 0.1) 1px, transparent 1px, transparent 4px),
+                /* Knitted V-Stitch Pattern */
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px),
+                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px);
+            color: #fff !important;
+            border: 2px solid rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            /* Softer, wool-like corners */
+            padding: 0.8rem 1.8rem;
             font-weight: 800;
-            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            /* Heavy volume for yarn look */
+            box-shadow:
+                0 6px 0px #312e81,
+                /* Darker core */
+                0 10px 20px rgba(0, 0, 0, 0.5),
+                /* Deep shadow */
+                inset 2px 2px 5px rgba(255, 255, 255, 0.2),
+                /* Soft yarn highlight */
+                0 0 10px rgba(99, 102, 241, 0.3);
+            /* Slight atmospheric glow from fibers */
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
         }
 
-        .page-subtitle {
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            margin-bottom: 2rem;
+        /* Woolen Fiber Effect Overlay */
+        .btn-premium::after,
+        .btn-action::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url("https://www.transparenttextures.com/patterns/felt.png");
+            /* Subtle noise/fiber texture */
+            opacity: 0.15;
+            pointer-events: none;
         }
 
-        .alert {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            color: var(--text-primary);
-            padding: 1rem 1.5rem;
+        .btn-premium:hover,
+        .btn-action:hover {
+            transform: translateY(-2px);
+            background-color: #7073f3;
+            box-shadow:
+                0 8px 0px #312e81,
+                0 12px 25px rgba(0, 0, 0, 0.6),
+                inset 2px 2px 5px rgba(255, 255, 255, 0.3);
+            filter: brightness(1.1);
         }
 
+        .btn-premium:active,
+        .btn-action:active {
+            transform: translateY(6px);
+            background-color: #312e81;
+            box-shadow:
+                0 0px 0px #312e81,
+                inset 4px 4px 10px #000;
+        }
+
+        .btn-action {
+            background-color: #8b5cf6;
+            /* Different wool color for actions */
+        }
+
+        .btn-action:hover {
+            background-color: #a78bfa;
+        }
+
+        /* Platform Specific Woolen Buttons */
+        .btn-ozon {
+            background-color: #005bff !important;
+            box-shadow: 0 6px 0px #003db3, 0 10px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-ozon:hover {
+            background-color: #1a6bff !important;
+            box-shadow: 0 8px 0px #003db3, 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .btn-wb {
+            background-color: #a855f7 !important;
+            box-shadow: 0 6px 0px #7e22ce, 0 10px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-wb:hover {
+            background-color: #b06ef8 !important;
+            box-shadow: 0 8px 0px #7e22ce, 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .btn-lemana {
+            background-color: #22c55e !important;
+            box-shadow: 0 6px 0px #15803d, 0 10px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-lemana:hover {
+            background-color: #2edc6d !important;
+            box-shadow: 0 8px 0px #15803d, 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .btn-ym {
+            background-color: #ffcc00 !important;
+            box-shadow: 0 6px 0px #cca300, 0 10px 20px rgba(0, 0, 0, 0.4);
+            color: #000 !important;
+            text-shadow: none !important;
+        }
+
+        .btn-ym:hover {
+            background-color: #ffd633 !important;
+            box-shadow: 0 8px 0px #cca300, 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .bg-ym {
+            background-color: #ffcc00 !important;
+            color: #000 !important;
+        }
+
+        .btn-danger-wool {
+            background-color: #ef4444 !important;
+            box-shadow: 0 6px 0px #7f1d1d, 0 10px 20px rgba(0, 0, 0, 0.4);
+            background-image:
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.1) 0px, rgba(0, 0, 0, 0.1) 1px, transparent 1px, transparent 4px),
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px),
+                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px) !important;
+        }
+
+        .btn-danger-wool:hover {
+            background-color: #f65858 !important;
+            box-shadow: 0 8px 0px #7f1d1d, 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .btn-danger-wool:active {
+            transform: translateY(6px);
+            box-shadow: 0 0px 0px #7f1d1d, inset 4px 4px 10px #000;
+        }
+
+        /* Knitted Scarf Component Styles */
+        .scarf-row {
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .scarf-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: #3b2b1d;
+            text-shadow: 1px 1px 0px #fff;
+        }
+
+        .scarf-track {
+            height: 24px;
+            background: #eeeadd;
+            border-radius: 12px;
+            position: relative;
+            box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.05);
+            border: 1px solid #d4ceb8;
+            overflow: visible;
+        }
+
+        .scarf-bar {
+            height: 100%;
+            background-color: #6366f1;
+            border-radius: 12px;
+            position: relative;
+            background-image:
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1) 0px, rgba(255, 255, 255, 0.1) 1px, transparent 1px, transparent 8px),
+                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.1) 0px, rgba(255, 255, 255, 0.1) 1px, transparent 1px, transparent 8px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15), inset 1px 1px 2px rgba(255, 255, 255, 0.3);
+            transition: width 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 15px;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 900;
+        }
+
+        .scarf-bar::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: 2px;
+            height: 20px;
+            width: 12px;
+            background-image: repeating-linear-gradient(90deg,
+                    rgba(255, 255, 255, 0.4) 0px, rgba(255, 255, 255, 0.4) 1px,
+                    transparent 1px, transparent 3px);
+            opacity: 0.8;
+            border-radius: 0 4px 4px 0;
+            filter: drop-shadow(2px 0 2px rgba(0, 0, 0, 0.1));
+        }
+
+        /* Light Recessed Inputs (Paper Slots) */
         .form-control,
         .form-select {
-            background: rgba(0, 0, 0, 0.2) !important;
-            border: 1px solid var(--glass-border) !important;
-            border-radius: 12px;
-            color: white !important;
+            background: #fcfaf5 !important;
+            border: 2px solid #e0d9c4 !important;
+            border-radius: 10px;
+            color: #3b2b1d !important;
             padding: 0.8rem 1.2rem;
-            transition: var(--transition-smooth);
+            box-shadow:
+                inset 2px 2px 4px rgba(139, 69, 19, 0.05),
+                inset -1px -1px 2px #fff !important;
+            transition: var(--transition-tactile);
         }
 
-        .form-control:focus,
-        .form-select:focus {
-            border-color: var(--brand-primary) !important;
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1) !important;
-            background: rgba(0, 0, 0, 0.3) !important;
+        .form-control:focus {
+            border-color: #6366f1 !important;
+            box-shadow:
+                inset 2px 2px 4px rgba(139, 69, 19, 0.05),
+                0 0 10px rgba(99, 102, 241, 0.15) !important;
         }
 
-        .container {
-            max-width: 1300px;
-        }
-
-        /* Table Styling */
+        /* Light Industrial Table */
         .table {
-            color: var(--text-primary) !important;
+            border-collapse: separate;
+            border-spacing: 0 8px;
+            background: transparent !important;
         }
 
         .table thead th {
-            border-bottom: 1px solid var(--glass-border);
-            color: var(--text-secondary);
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
+            background: #e9e4d1 !important;
+            border: 1px solid #d4ceb8 !important;
+            color: #5c4b3a;
+            padding: 1rem;
+            text-shadow: 1px 1px 0px #fff;
+            box-shadow: inset 1px 1px 0px #fff;
         }
 
-        .table td {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            vertical-align: middle;
-            padding: 1.2rem 0.75rem;
+        .table tbody td {
+            background: #fdfcf9 !important;
+            border-top: 1px solid #e5e1d1 !important;
+            border-bottom: 2px solid #e5e1d1 !important;
+            padding: 1.2rem 1rem;
+            color: #2d261f;
+            box-shadow: 2px 2px 4px rgba(139, 69, 19, 0.05);
+        }
+
+        .table tbody tr td:first-child {
+            border-left: 2px solid #e5e1d1;
+            border-radius: 12px 0 0 12px;
+        }
+
+        .table tbody tr td:last-child {
+            border-right: 2px solid #e5e1d1;
+            border-radius: 0 12px 12px 0;
+        }
+
+        .table tbody tr:hover td {
+            background: #f9f7f0 !important;
+            color: #000 !important;
+        }
+
+        /* Modal Styling (Nana Banana Theme) */
+        .modal-content {
+            background-color: #fdfcf9 !important;
+            /* Light Soft Wool */
+            background-image:
+                repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.02) 0px, rgba(0, 0, 0, 0.02) 1px, transparent 1px, transparent 10px),
+                repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.02) 0px, rgba(0, 0, 0, 0.02) 1px, transparent 1px, transparent 10px) !important;
+            border: 2px solid #e5e1d1 !important;
+            border-radius: 20px !important;
+            box-shadow: 0 15px 35px rgba(139, 69, 19, 0.2) !important;
+            color: #3b2b1d !important;
+        }
+
+        .modal-header {
+            border-bottom: 2px solid #e9e4d1 !important;
+            padding: 1.5rem 2rem !important;
+        }
+
+        .modal-title {
+            font-family: 'Outfit', sans-serif !important;
+            font-weight: 900 !important;
+            color: #3b2b1d !important;
+            text-shadow: 1px 1px 0px #fff !important;
+            letter-spacing: -0.5px !important;
+        }
+
+        .modal-body {
+            padding: 2rem !important;
+        }
+
+        .modal-body label {
+            color: #5c4b3a !important;
+            font-weight: 800 !important;
+            text-transform: uppercase !important;
+            font-size: 0.75rem !important;
+            letter-spacing: 1px !important;
+            text-shadow: 1px 1px 0px #fff !important;
+            margin-bottom: 0.5rem !important;
+        }
+
+        .modal-body p,
+        .modal-body span,
+        .modal-body div:not(.form-control):not(.form-check):not(.modal-content) {
+            color: #5c4b3a !important;
+        }
+
+        .modal-footer {
+            border-top: 2px solid #e9e4d1 !important;
+            padding: 1.5rem 2rem !important;
+            background: rgba(233, 228, 209, 0.2) !important;
+        }
+
+        .btn-close:not(.btn-close-white) {
+            filter: sepia(1) saturate(5) hue-rotate(-20deg) brightness(0.5);
+            /* Brownish close button */
+        }
+
+        /* User Matrix Badges */
+        .badge.bg-danger {
+            background-color: #ef4444 !important;
+            box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+        }
+
+        .badge.bg-success {
+            background-color: #22c55e !important;
+            box-shadow: 0 2px 4px rgba(34, 197, 94, 0.2);
+        }
+
+        /* Global Alerts (Nana Banana style) */
+        .alert {
+            background-color: #ffffff !important;
+            border: 2px solid #e5e1d1 !important;
+            border-radius: 12px !important;
+            color: #3b2b1d !important;
+            box-shadow: 4px 4px 10px rgba(139, 69, 19, 0.05) !important;
+            font-weight: 600 !important;
+        }
+
+        #password-note {
+            color: #94a3b8 !important;
+            font-size: 0.85em !important;
+            font-style: italic !important;
+            text-shadow: none !important;
         }
     </style>
 </head>
@@ -284,41 +641,34 @@
     {% if current_user.is_authenticated %}
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
-                <i class="bi bi-intersect"></i> Analytics
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
-                            href="{{ url_for('dashboard') }}">
-                            Дашборд
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'parser' %}active{% endif %}"
-                            href="{{ url_for('parser') }}">
-                            Управление
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}"
-                            href="{{ url_for('settings') }}">
-                            Настройки
-                        </a>
-                    </li>
-                </ul>
-                <div class="navbar-nav">
-                    {% if current_user.has_permission('can_manage_users') %}
-                    <a class="nav-link {% if request.endpoint == 'users' %}active{% endif %}"
-                        href="{{ url_for('users') }}">Пользователи</a>
-                    {% endif %}
-                    <a class="nav-link" href="{{ url_for('logout') }}">Выход</a>
-                </div>
+            <div class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
+                        href="{{ url_for('dashboard') }}">
+                        Дашборд
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'parser' %}active{% endif %}"
+                        href="{{ url_for('parser') }}">
+                        Управление
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}"
+                        href="{{ url_for('settings') }}">
+                        Настройки
+                    </a>
+                </li>
             </div>
+            <div class="navbar-nav">
+                {% if current_user.has_permission('can_manage_users') %}
+                <a class="nav-link {% if request.endpoint == 'users' %}active{% endif %}"
+                    href="{{ url_for('users') }}">Пользователи</a>
+                {% endif %}
+                <a class="nav-link" href="{{ url_for('logout') }}">Выход</a>
+            </div>
+        </div>
         </div>
     </nav>
     {% endif %}

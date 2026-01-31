@@ -1,4 +1,5 @@
 import os, sys, time, random, json, re, threading, requests, io, shutil
+from curl_cffi import requests as cffi_requests
 # Force UTF-8 encoding for stdout and stderr to handle emojis and Russian text
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -7,10 +8,19 @@ if sys.stdout.encoding != 'utf-8':
 import undetected_chromedriver as uc
 from dotenv import load_dotenv
 import psycopg2
-from core.lemana_utils import get_lemana_regional_url
+from core.lemana_utils import LEMANA_REGION_SUBDOMAINS, get_lemana_regional_url, kill_lemana_browsers
 from datetime import datetime
 
 load_dotenv()
+
+# Import status tracker
+try:
+    from core.parser_status import set_status, mark_complete, mark_error
+except ImportError:
+    # Fallback if core is not in path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from core.parser_status import set_status, mark_complete, mark_error
+
 
 # Define project root (parent of parsers/ directory)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,7 +115,7 @@ class LemanaSilentParser:
         options.add_argument("--disable-webgl")
         options.add_argument("--mute-audio")
         
-        # Enable images for evidence screenshots
+        # Enable images to capture useful screenshots for violations
         prefs = {
             "profile.managed_default_content_settings.images": 1,
             "profile.default_content_settings.images": 1
@@ -132,7 +142,11 @@ class LemanaSilentParser:
             except Exception as e:
                 print(f"[LEMANA] Proxy extension error: {e}")
 
-        max_retries = 10
+        # Substantial stagger start to avoid "thundering herd" on DNS/storage during massive regional startup
+        stagger_wait = random.uniform(2.0, 20.0)
+        time.sleep(stagger_wait)
+
+        max_retries = 15 # Increased retries for stability
         for attempt in range(max_retries):
             try:
                 major_version = get_chrome_major_version()
@@ -145,22 +159,55 @@ class LemanaSilentParser:
                     suppress_welcome=True,
                     headless=headless
                 )
-                self.driver.set_page_load_timeout(60) # Increased back for stability
+                self.driver.set_page_load_timeout(60) 
                 return True
             except Exception as e:
                 err_str = str(e)
                 # Specific Windows errors for file locking or race conditions during UC patching
-                if "WinError 183" in err_str or "WinError 32" in err_str or "already exists" in err_str or "occupied" in err_str:
-                    wait = random.uniform(0.5, 3.0)
-                    # print(f"[LEMANA] Driver lock detected (Attempt {attempt+1}/{max_retries}), retrying in {wait:.1f}s...")
+                if any(x in err_str for x in ["WinError 183", "WinError 32", "already exists", "occupied"]):
+                    wait = random.uniform(1.0, 5.0)
                     time.sleep(wait)
                     continue
                 
-                print(f"[LEMANA] Browser start failed: {e}")
+                # DNS / Connection errors (e.g., Errno 11001 / getaddrinfo failed)
+                if "getaddrinfo" in err_str or "11001" in err_str:
+                    wait = random.uniform(5.0, 15.0)
+                    print(f"[LEMANA] DNS/Connection failure during start (Attempt {attempt+1}/{max_retries}), retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+                    continue
+
+                print(f"[LEMANA] Browser start failed (Attempt {attempt+1}): {e}")
                 if attempt == max_retries - 1:
                     return False
-                time.sleep(1)
+                time.sleep(2)
         return False
+
+    def resolve_lemana_url(self, sku):
+        """Resolves numeric SKU to full SEO URL on main domain to avoid regional 404s"""
+        if not hasattr(self, 'url_cache'):
+            self.url_cache = {}
+            
+        if sku in self.url_cache:
+            return self.url_cache[sku]
+            
+        print(f"[LEMANA] Resolving slug for SKU {sku} on main domain...")
+        main_url = f"https://lemanapro.ru/product/{sku}/"
+        try:
+            # We need the driver to be started
+            if not self.driver:
+                self.start_driver(headless=True)
+                
+            self.driver.get(main_url)
+            time.sleep(3) # Small wait for redirect
+            real_url = self.driver.current_url
+            if '/product/' in real_url and any(c.isalpha() for c in real_url):
+                self.url_cache[sku] = real_url
+                print(f"[LEMANA] Resolved to: {real_url}")
+                return real_url
+        except Exception as e:
+            print(f"[LEMANA] Resolution error for {sku}: {e}")
+            
+        return main_url
 
     def get_product_data(self, product_url, region_id=34):
         """
@@ -181,6 +228,13 @@ class LemanaSilentParser:
             sku_match = re.search(r'([0-9]+)/?$', url)
             sku = sku_match.group(1) if sku_match else "unknown"
 
+        if str(url).strip().isdigit() or (url.startswith('https://') and url.strip('/').split('/')[-1].isdigit()):
+            # If numeric SKU, resolve it to SEO slug on main domain first to avoid regional 404s
+            sku_to_resolve = sku if sku else url.strip('/').split('/')[-1]
+            resolved_url = self.resolve_lemana_url(sku_to_resolve)
+            if resolved_url:
+                url = resolved_url
+
         # Apply regional subdomain and fromRegion parameter
         url = get_lemana_regional_url(url, region_id)
 
@@ -197,22 +251,24 @@ class LemanaSilentParser:
                 self.driver.get(url) 
                 time.sleep(random.uniform(2, 4))
                 
-                # Set cookie
-                self.driver.execute_cdp_cmd('Network.setCookie', {
-                    'domain': '.lemanapro.ru',
-                    'name': 'regionId',
-                    'value': str(region_id),
-                    'path': '/'
-                })
+                # Set cookie for BOTH variations to be safe
+                for dom in ['.lemanapro.ru', '.lemana-pro.ru']:
+                    try:
+                        self.driver.execute_cdp_cmd('Network.setCookie', {
+                            'domain': dom,
+                            'name': 'regionId',
+                            'value': str(region_id),
+                            'path': '/'
+                        })
+                    except: pass
                 
                 # Refresh to apply cookie
                 self.driver.refresh()
-                time.sleep(random.uniform(8, 14)) # Increased wait for hydration
+                time.sleep(random.uniform(7, 10)) # Stable wait for hydration
                 load_success = True
                 break # Success
             except Exception as e:
                 if attempt == 0:
-                    # print(f"[LEMANA] Timeout/Load Error (Region {region_id}), retrying URL...")
                     time.sleep(2)
                     continue
                 else:
@@ -366,7 +422,13 @@ def process_region_task(skus_list, region_id, headless=True):
             return False
             
         # print(f"[LEMANA] Worker started for Region ID: {region_id}")
-        for item in skus_list:
+        total_items = len(skus_list)
+        for idx, item in enumerate(skus_list, 1):
+            # Update progress status (simple per-region update for now)
+            # In a more complex setup, we'd aggregate across regions
+            if region_id == 34: # Main region update
+                set_status('lemana', idx, total_items)
+                
             sku = item['sku']
             url = item.get('url') or sku
             ric_price = item.get('ric_leroy_price')
@@ -414,15 +476,15 @@ def process_region_task(skus_list, region_id, headless=True):
                 # Capture failures without verbose snippets unless critical
                 print(f"[LEMANA] FAIL (Region {region_id}): {sku}")
                 
-            # No sleep between items for maximum speed
+            # Add random sleep between items to avoid detection and reduce load
+            time.sleep(random.uniform(1.0, 3.0))
             
     except Exception as e:
         print(f"[LEMANA] Worker Error (Region {region_id}): {e}")
     finally:
         parser.close()
-    return True
 
-def run_lemana_parsing(skus_list, region_ids=[34], max_workers=10, headless=True):
+def run_lemana_parsing(skus_list, region_ids=[34], max_workers=20, headless=True):
     """Entry point for parallel regional parsing."""
     from concurrent.futures import ProcessPoolExecutor, as_completed
     
@@ -442,6 +504,12 @@ def run_lemana_parsing(skus_list, region_ids=[34], max_workers=10, headless=True
                 
     total_elapsed = time.time() - start_total
     print(f"[LEMANA] Parallel parsing finished in {total_elapsed/60:.1f} minutes.")
+    
+    # Final cleanup to ensure no orphan processes
+    kill_lemana_browsers()
+    
+    # Mark as complete
+    mark_complete('lemana')
 
 if __name__ == "__main__":
     # Test

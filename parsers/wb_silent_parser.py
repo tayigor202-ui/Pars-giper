@@ -11,6 +11,15 @@ from datetime import datetime
 
 load_dotenv()
 
+# Import status tracker
+try:
+    from core.parser_status import set_status, mark_complete, mark_error
+except ImportError:
+    # Fallback if core is not in path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from core.parser_status import set_status, mark_complete, mark_error
+
+
 def find_chrome():
     """Find chrome executable automatically"""
     env_path = os.getenv('CHROME_PATH')
@@ -256,25 +265,40 @@ def save_to_db(data):
     except Exception as e:
         print(f"[DB ERROR] Connection SKU {data['sku']}: {e}")
 
-def run_wb_silent_parsing():
+def run_wb_silent_parsing(items_to_parse=None):
     parser = WildberriesSilentParser()
     if not parser.warmup():
         print("[SILENT] Failed to start. Warmup unsuccessful.")
         return
 
-    # Load from DB - ONLY items with valid SKU
-    try:
-        conn = psycopg2.connect(DB_URL)
-        cur = conn.cursor()
-        cur.execute("SELECT sku, competitor_name, sp_code FROM public.wb_prices WHERE sku IS NOT NULL AND sku != ''")
-        items = cur.fetchall()
-        cur.close()
-        conn.close()
-    except: return
+    # Load from DB or use provided list
+    if items_to_parse:
+        items = []
+        for item in items_to_parse:
+            if isinstance(item, dict):
+                items.append((item.get('sku'), item.get('competitor_name', 'Wildberries'), item.get('sp_code', '---')))
+            else:
+                items.append((str(item), 'Wildberries', '---'))
+        print(f"[SILENT] Targeted parsing requested for {len(items)} items.")
+    else:
+        # Load from DB - ONLY items with valid SKU
+        try:
+            conn = psycopg2.connect(DB_URL)
+            cur = conn.cursor()
+            cur.execute("SELECT sku, competitor_name, sp_code FROM public.wb_prices WHERE sku IS NOT NULL AND sku != ''")
+            items = cur.fetchall()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[SILENT] DB Load Error: {e}")
+            return
 
     print(f"[SILENT] Starting parsing for {len(items)} items...")
     
     for idx, (sku, comp_name, sp_code) in enumerate(items, 1):
+        # Update progress status
+        set_status('wb', idx, len(items))
+        
         print(f"[{idx}/{len(items)}] WB SKU {sku}...", end=' ', flush=True)
         res = parser.fetch_price(sku)
         
@@ -296,6 +320,9 @@ def run_wb_silent_parsing():
             save_to_db(res)
             
         time.sleep(random.uniform(0.1, 0.5)) # Fast mode active!
+    
+    # Mark as complete
+    mark_complete('wb')
     
     cleanup_resources()
 

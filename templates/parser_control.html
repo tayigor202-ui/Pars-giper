@@ -3,39 +3,48 @@
 {% block title %}Управление - Analytics{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
+<div class="row mb-5">
     <div class="col-12">
-        <h1 class="page-title">Управление</h1>
-        <p class="page-subtitle">Запуск и остановка процессов парсинга.</p>
+        <h1 class="page-title" style="filter: drop-shadow(1px 1px 0px rgba(255,255,255,0.8));">
+            <i class="bi bi-gear-wide-connected" style="color: var(--brand-primary);"></i> ЦЕНТР УПРАВЛЕНИЯ
+        </h1>
+        <p class="page-subtitle"
+            style="letter-spacing: 2px; font-weight: 800; color: #5c4b3a; text-shadow: 1px 1px 0px #fff;">МАНИПУЛЯЦИЯ
+            ПОТОКАМИ ДАННЫХ И ПРОЦЕССАМИ</p>
     </div>
 </div>
 
 <div class="row align-items-stretch">
     <div class="col-lg-5">
         <div class="main-card h-100">
-            <h3 class="h5 mb-4 fw-bold">Командный центр</h3>
+            <h3 class="h5 mb-4 fw-bold" style="text-shadow: 1px 1px 0px #fff;"><i
+                    class="bi bi-joystick me-2"></i>Командный блок</h3>
 
             <div class="d-grid gap-3 mb-4">
-                <button id="start-parser-btn" class="btn btn-action py-3">
-                    <i class="bi bi-play-fill me-2"></i> Запуск Ozon
+                <button id="start-parser-btn" class="btn btn-action btn-ozon py-3 skeu-raised">
+                    <i class="bi bi-play-fill me-2"></i> ЗАПУСТИТЬ OZON
                 </button>
-                <button id="start-wb-parser-btn" class="btn btn-action py-3" style="background: #a855f7;">
-                    <i class="bi bi-play-fill me-2"></i> Запуск WB
+                <button id="start-wb-parser-btn" class="btn btn-action btn-wb py-3">
+                    <i class="bi bi-play-fill me-2"></i> ЗАПУСТИТЬ WB
                 </button>
-                <button id="start-lemana-parser-btn" class="btn btn-action py-3" style="background: #22c55e;">
-                    <i class="bi bi-play-fill me-2"></i> Запуск Lemana
+                <button id="start-lemana-parser-btn" class="btn btn-action btn-lemana py-3">
+                    <i class="bi bi-play-fill me-2"></i> ЗАПУСТИТЬ LEMANA
                 </button>
-                <button id="stop-parser-btn" class="btn btn-outline-danger py-3 border-2 rounded-4">
-                    <i class="bi bi-stop-fill me-2"></i> Остановить всё
+                <button id="start-ym-parser-btn" class="btn btn-action btn-ym py-3">
+                    <i class="bi bi-play-fill me-2"></i> ЗАПУСТИТЬ Y.MARKET
+                </button>
+                <button id="stop-parser-btn" class="btn btn-danger-wool py-3">
+                    <i class="bi bi-stop-fill me-2"></i> АВАРИЙНЫЙ ОСТАНОВ
                 </button>
             </div>
 
             <hr class="border-secondary opacity-25 my-4">
 
-            <h3 class="h5 mb-3 fw-bold">Система</h3>
+            <h3 class="h5 mb-3 fw-bold" style="text-shadow: 1px 1px 0px #000;"><i
+                    class="bi bi-cloud-download me-2"></i>Утилиты</h3>
             <div class="d-grid gap-3">
-                <button id="git-pull-btn" class="btn btn-outline-info py-2 border-2 rounded-4">
-                    <i class="bi bi-cloud-arrow-down-fill me-2"></i> Обновить из Git
+                <button id="git-pull-btn" class="btn btn-premium py-2">
+                    <i class="bi bi-cloud-arrow-down-fill me-2"></i> СИНХРОНИЗАЦИЯ GIT
                 </button>
             </div>
 
@@ -44,15 +53,23 @@
     </div>
 
     <div class="col-lg-7">
-        <div class="main-card h-100 bg-black bg-opacity-50">
+        <div class="main-card h-100">
             <div class="d-flex justify-content-between align-items-center mb-4">
-                <h3 class="h5 mb-0 fw-bold">Терминал</h3>
-                <i class="bi bi-terminal text-secondary"></i>
+                <h3 class="h5 mb-0 fw-bold" style="text-shadow: 1px 1px 0px #fff;"><i
+                        class="bi bi-terminal-fill me-2"></i>Терминал Вывода</h3>
+                <span class="badge"
+                    style="background: #e9e4d1; border: 1px solid #d4ceb8; color: #5c4b3a; box-shadow: inset 1px 1px 2px #fff;">LOG_ACTIVE</span>
             </div>
 
-            <div id="mini-log" class="font-monospace small p-3"
-                style="height: 300px; overflow-y: auto; color: #94a3b8; background: rgba(0,0,0,0.3); border-radius: 12px;">
-                <span class="text-secondary">[SYSTEM]</span> Ожидание команды пользователя...
+            <div id="mini-log-container" class="p-1"
+                style="border-radius: 12px; position: relative; overflow: hidden; background: #0d0f14; border: 2px solid #333; box-shadow: inset 4px 4px 10px #000;">
+                <div id="mini-log" class="font-monospace small p-3"
+                    style="height: 400px; overflow-y: auto; color: #4ade80; background: transparent; border-radius: 8px;">
+                    <span class="text-secondary">[SYSTEM]</span> Монитор готов к приему данных...
+                </div>
+                <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+                    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1), rgba(0,0,0,0.1) 1px, transparent 1px, transparent 2px); 
+                    pointer-events: none; border-radius: 8px;"></div>
             </div>
         </div>
     </div>
@@ -104,6 +121,20 @@
             .then(data => {
                 addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
                 setTimeout(() => startLogPolling('lemana'), 500);
+            });
+    });
+
+    document.getElementById('start-ym-parser-btn').addEventListener('click', function () {
+        log.innerHTML = '<div class="text-warning">[SYSTEM] Подготовка к запуску Yandex Market...</div>';
+        fetch('/api/ym/parser/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+            .then(r => r.json())
+            .then(data => {
+                addLog(data.message, data.status === 'success' ? 'SUCCESS' : 'ERROR');
+                setTimeout(() => startLogPolling('ym_parser'), 500);
             });
     });
 

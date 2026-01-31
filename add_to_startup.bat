@@ -18,12 +18,11 @@ if "%CURRENT_USER%"=="" (
 REM Method 1: Task Scheduler (Best for background reliability)
 echo [1/2] Регистрация в Планировщике задач...
 schtasks /delete /tn "ParsGiper_WebServer" /f >nul 2>&1
-schtasks /create /tn "ParsGiper_WebServer" /tr "wscript.exe F:\Pars-giper\start_persistently.vbs" /sc onlogon /ru "%CURRENT_USER%" /rl HIGHEST /f
-
-if %errorlevel% equ 0 (
-    echo [SUCCESS] Задание в Планировщике создано.
+schtasks /create /tn "ParsGiper_WebServer" /tr "wscript.exe F:\Pars-giper\start_persistently.vbs" /sc onlogon /ru "%CURRENT_USER%" /rl HIGHEST /delay 0001:00 /f
+if errorlevel 1 (
+    echo [WARNING] Планировщик не принял задание (требуются права Администратора).
 ) else (
-    echo [WARNING] Планировщик не принял задание (может требовать пароль).
+    echo [SUCCESS] Задание в Планировщике создано.
 )
 
 REM Method 2: Startup Folder (Most reliable fallback)

@@ -26,17 +26,26 @@ if not DB_URL:
 if DB_URL and 'postgresql+psycopg2://' in DB_URL:
     DB_URL = DB_URL.replace('postgresql+psycopg2://', 'postgresql://')
 
-# Load Lemana Google Sheets URL from config.json
-with open('config.json', 'r', encoding='utf-8') as f:
-    config = json.load(f)
-    SPREADSHEET_URL = config.get('lemana_spreadsheet_url', '')
+# Load Lemana Google Sheets URL
+def get_config_url():
+    if os.path.exists('config.json'):
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get('lemana_spreadsheet_url', '')
+        except: pass
+    return None
 
-if not SPREADSHEET_URL:
-    print("[ERROR] Lemana Sheet URL not found in config.json! Please add it.")
-    # For now, we allow the script to exist but it will exit if URL is missing
-    exit(1)
-
-print(f"[INFO] Using Lemana Sheet URL: {SPREADSHEET_URL}")
+if len(sys.argv) > 1:
+    SPREADSHEET_URL = sys.argv[1]
+    print(f"[INFO] Using provided Lemana Sheet URL: {SPREADSHEET_URL}")
+else:
+    SPREADSHEET_URL = get_config_url()
+    if SPREADSHEET_URL:
+        print(f"[INFO] Using Lemana Sheet URL from config: {SPREADSHEET_URL}")
+    else:
+        print("[ERROR] Lemana Sheet URL not found in config.json or arguments!")
+        exit(1)
 
 def get_export_url(url):
     """Конвертирует обычную ссылку Google Sheets в ссылку для экспорта CSV"""

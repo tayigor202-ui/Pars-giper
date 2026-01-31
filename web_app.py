@@ -14,7 +14,9 @@ from core.user_management import UserManager
 from functools import wraps
 import pandas as pd
 import io
-from core.lemana_utils import get_lemana_regional_url
+import time
+from core.lemana_utils import get_lemana_regional_url, LEMANA_REGION_SUBDOMAINS, LEMANA_REGION_NAMES
+from core.ym_utils import YM_REGION_NAMES, YM_ALL_REGION_IDS
 
 CONFIG_FILE = 'config.json'
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +28,8 @@ def load_config():
     return {
         "ozon_spreadsheet_url": "",
         "wb_spreadsheet_url": "",
-        "lemana_spreadsheet_url": ""
+        "lemana_spreadsheet_url": "",
+        "ym_spreadsheet_url": ""
     }
 
 def save_config(config):
@@ -37,6 +40,19 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# --- AGGRESSIVE CACHE BUSTING ---
+@app.context_processor
+def inject_version():
+    return {'v': str(int(time.time()))}
+
+@app.after_request
+def add_header(response):
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '-1'
+    return response
+# -------------------------------
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -158,7 +174,11 @@ def logout():
 @login_required
 @permission_required('can_view_dashboard')
 def dashboard():
-    return render_template('dashboard.html')
+    config = load_config()
+    return render_template('dashboard.html', 
+                          config=config, 
+                          lemana_regions=LEMANA_REGION_NAMES,
+                          ym_regions=YM_REGION_NAMES)
 
 @app.route('/parser')
 @login_required
@@ -286,6 +306,21 @@ def start_lemana_parser():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/api/ym/parser/start', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def start_ym_parser():
+    try:
+        script_path = os.path.join(ROOT_DIR, 'parsers', 'ym_parser_production.py')
+        success, result = run_script_in_background(script_path, "ym_parser", show_console=True)
+        
+        if success:
+            return jsonify({'status': 'success', 'message': f'Парсинг Yandex Market запущен (лог: {result})'})
+        else:
+            return jsonify({'status': 'error', 'message': result})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
 @app.route('/api/lemana/import', methods=['POST'])
 @login_required
 @permission_required('can_import_data')
@@ -328,26 +363,224 @@ def parse_lemana_targeted():
                 creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
             )
             
+        if data.get('skus') == 'all':
+            conn = psycopg2.connect(
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASS'),
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT')
+            )
+            cur = conn.cursor()
+            filters = data.get('filters', {})
+            search = filters.get('search', '')
+            # For Lemana we always fetch from lemana_prices
+            query = "SELECT DISTINCT sku FROM lemana_prices WHERE 1=1"
+            params = []
+            if search:
+                query += " AND (sku ILIKE %s OR name ILIKE %s)"
+                params.extend([f"%{search}%", f"%{search}%"])
+            
+            # Additional filters from dashboard
+            min_p = filters.get('min_price')
+            max_p = filters.get('max_price')
+            if min_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+                params.append(min_p)
+            if max_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+                params.append(max_p)
+                
+            cur.execute(query, params)
+            data['skus'] = [r[0] for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+            
         return jsonify({'status': 'success', 'message': f'Точечный парсинг запущен для {len(data["skus"])} товаров'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/api/wb/parser/start', methods=['POST'])
+@app.route('/api/ozon/parse_targeted', methods=['POST'])
 @login_required
 @permission_required('can_run_parser')
-def start_wb_parser():
+def parse_ozon_targeted():
     try:
-        # We now prefer using the unified /api/parser/start?platform=wb
-        # but keeping this for compatibility or direct calls
-        script_path = os.path.join(ROOT_DIR, 'parsers', 'wb_parser_production.py')
-        success, result = run_script_in_background(script_path, "wb", show_console=True)
+        data = request.json
+        if not data or not data.get('skus'):
+            return jsonify({'status': 'error', 'message': 'Не выбраны товары для парсинга'})
+            
+        if data.get('skus') == 'all':
+            conn = psycopg2.connect(
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASS'),
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT')
+            )
+            cur = conn.cursor()
+            filters = data.get('filters', {})
+            search = filters.get('search', '')
+            store = filters.get('store', '')
+            query = "SELECT DISTINCT sku FROM prices WHERE 1=1"
+            params = []
+            if search:
+                query += " AND (sku ILIKE %s OR name ILIKE %s)"
+                params.extend([f"%{search}%", f"%{search}%"])
+            if store:
+                query += " AND competitor_name = %s"
+                params.append(store)
+            
+            min_p = filters.get('min_price')
+            max_p = filters.get('max_price')
+            if min_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+                params.append(min_p)
+            if max_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+                params.append(max_p)
+
+            cur.execute(query, params)
+            data['skus'] = [r[0] for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'ozon_targeted_parser.py')
+        log_file_path = os.path.join(ROOT_DIR, 'logs', 'ozon.log')
         
-        if success:
-             return jsonify({'status': 'success', 'message': f'Парсинг Wildberries запущен (лог: {result})'})
-        else:
-             return jsonify({'status': 'error', 'message': result})
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"\n--- Targeted Ozon Parsing Started at {datetime.now()} ---\n")
+            log_file.flush()
+            
+            subprocess.Popen(
+                [sys.executable, "-u", script_path, json.dumps(data)],
+                cwd=ROOT_DIR,
+                env=env,
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            )
+            
+        return jsonify({'status': 'success', 'message': f'Точечный парсинг Ozon запущен для {len(data["skus"])} товаров'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/wb/parse_targeted', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def parse_wb_targeted():
+    try:
+        data = request.json
+        if not data or not data.get('skus'):
+            return jsonify({'status': 'error', 'message': 'Не выбраны товары для парсинга'})
+            
+        if data.get('skus') == 'all':
+            conn = psycopg2.connect(
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASS'),
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT')
+            )
+            cur = conn.cursor()
+            filters = data.get('filters', {})
+            search = filters.get('search', '')
+            store = filters.get('store', '')
+            query = "SELECT DISTINCT sku FROM wb_prices WHERE 1=1"
+            params = []
+            if search:
+                query += " AND (sku ILIKE %s OR name ILIKE %s)"
+                params.extend([f"%{search}%", f"%{search}%"])
+            if store:
+                query += " AND competitor_name = %s"
+                params.append(store)
+
+            min_p = filters.get('min_price')
+            max_p = filters.get('max_price')
+            if min_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+                params.append(min_p)
+            if max_p:
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+                params.append(max_p)
+
+            cur.execute(query, params)
+            data['skus'] = [r[0] for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'wb_targeted_parser.py')
+        log_file_path = os.path.join(ROOT_DIR, 'logs', 'wb.log')
+        
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"\n--- Targeted WB Parsing Started at {datetime.now()} ---\n")
+            log_file.flush()
+            
+            subprocess.Popen(
+                [sys.executable, "-u", script_path, json.dumps(data)],
+                cwd=ROOT_DIR,
+                env=env,
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            )
+            
+        return jsonify({'status': 'success', 'message': f'Точечный парсинг WB запущен для {len(data["skus"])} товаров'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/ym/parse_targeted', methods=['POST'])
+@login_required
+@permission_required('can_run_parser')
+def parse_ym_targeted():
+    try:
+        data = request.json
+        if not data or not data.get('skus'):
+            return jsonify({'status': 'error', 'message': 'Не выбраны товары для парсинга'})
+            
+        if data.get('skus') == 'all':
+            conn = psycopg2.connect(
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASS'),
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT')
+            )
+            cur = conn.cursor()
+            filters = data.get('filters', {})
+            search = filters.get('search', '')
+            query = "SELECT DISTINCT sku FROM ym_prices WHERE 1=1"
+            params = []
+            if search:
+                query += " AND (sku ILIKE %s OR name ILIKE %s)"
+                params.extend([f"%{search}%", f"%{search}%"])
+            
+            cur.execute(query, params)
+            data['skus'] = [r[0] for r in cur.fetchall()]
+            cur.close()
+            conn.close()
+
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'ym_targeted_parser.py')
+        log_file_path = os.path.join(ROOT_DIR, 'logs', 'ym_parser.log')
+        
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            log_file.write(f"\n--- Targeted YM Parsing Started at {datetime.now()} ---\n")
+            log_file.flush()
+            
+            subprocess.Popen(
+                [sys.executable, "-u", script_path, json.dumps(data)],
+                cwd=ROOT_DIR,
+                env=env,
+                creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            )
+            
+        return jsonify({'status': 'success', 'message': f'Точечный парсинг Yandex Market запущен для {len(data["skus"])} товаров'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/parser/logs', methods=['GET'])
 @login_required
@@ -425,6 +658,56 @@ def update_database_wb():
             return jsonify({'status': 'error', 'message': f'Ошибка WB: {result.stderr}'})
     except subprocess.TimeoutExpired:
         return jsonify({'status': 'error', 'message': 'Превышено время ожидания WB'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/database/update_lemana', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def update_database_lemana():
+    try:
+        config = load_config()
+        url = request.json.get('url') if request.is_json else None
+        if not url:
+            url = config.get('lemana_spreadsheet_url')
+            
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'import_lemana_from_sheets.py')
+        cmd = [sys.executable, script_path]
+        if url: cmd.append(url)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        
+        if result.returncode == 0:
+            return jsonify({'status': 'success', 'message': 'База Lemana Pro обновлена'})
+        else:
+            return jsonify({'status': 'error', 'message': f'Ошибка Lemana: {result.stderr}'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'status': 'error', 'message': 'Превышено время ожидания Lemana'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+@app.route('/api/database/update_ym', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def update_database_ym():
+    try:
+        config = load_config()
+        url = request.json.get('url') if request.is_json else None
+        if not url:
+            url = config.get('ym_spreadsheet_url')
+            
+        script_path = os.path.join(ROOT_DIR, 'scripts', 'import_ym_from_sheets.py')
+        cmd = [sys.executable, script_path]
+        if url: cmd.append(url)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        
+        if result.returncode == 0:
+            return jsonify({'status': 'success', 'message': 'База Yandex Market обновлена'})
+        else:
+            return jsonify({'status': 'error', 'message': f'Ошибка YM: {result.stderr}'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'status': 'error', 'message': 'Превышено время ожидания YM'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
@@ -525,6 +808,38 @@ def clear_wb_database():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Ошибка очистки WB: {str(e)}'})
+
+@app.route('/api/database/clear_ym', methods=['POST'])
+@login_required
+@permission_required('can_import_data')
+def clear_ym_database():
+    """Clear all Yandex Market data from ym_prices table"""
+    try:
+        db_url = os.getenv('DB_URL')
+        if not db_url:
+            db_user = os.getenv('DB_USER')
+            db_pass = os.getenv('DB_PASS')
+            db_host = os.getenv('DB_HOST')
+            db_port = os.getenv('DB_PORT')
+            db_name = os.getenv('DB_NAME')
+            db_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        
+        cur.execute("DELETE FROM public.ym_prices")
+        deleted_count = cur.rowcount
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Таблица Yandex Market очищена. Удалено записей: {deleted_count}'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Ошибка очистки YM: {str(e)}'})
 
 @app.route('/api/config', methods=['GET'])
 @login_required
@@ -722,29 +1037,33 @@ def dashboard_stats():
             table = 'wb_prices'
         elif platform == 'lemana':
             table = 'lemana_prices'
+        elif platform == 'ym':
+            table = 'ym_prices'
         cur = conn.cursor()
+        
+        # Determine price column
+        price_col = 'price' if platform == 'lemana' else ('price_base' if platform == 'ym' else 'price_card')
         
         print("[DEBUG] Querying total products...")
         # Total products (unique SKUs)
         cur.execute(f"SELECT COUNT(DISTINCT sku) FROM {table}")
         total_products = cur.fetchone()[0]
         
-        print("[DEBUG] Querying products with prices...")
-        # Products with prices - clean price_card and convert to numeric
+        # Products with prices - clean price column and convert to numeric
         cur.execute(f"""
             SELECT COUNT(DISTINCT sku) FROM {table}
-            WHERE price_card IS NOT NULL 
-            AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            WHERE {price_col} IS NOT NULL 
+            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
         """)
         products_with_prices = cur.fetchone()[0]
         
         print("[DEBUG] Querying average price...")
         # Average price - clean and convert
         cur.execute(f"""
-            SELECT AVG(NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC) 
+            SELECT AVG(NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC) 
             FROM {table}
-            WHERE price_card IS NOT NULL 
-            AND NULLIF(REGEXP_REPLACE(price_card, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            WHERE {price_col} IS NOT NULL 
+            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
         """)
         avg_price = cur.fetchone()[0] or 0
         
@@ -787,10 +1106,12 @@ def dashboard_chart():
             table = 'wb_prices'
         elif platform == 'lemana':
             table = 'lemana_prices'
+        elif platform == 'ym':
+            table = 'ym_prices'
         cur = conn.cursor()
         
         # Get average price by competitor
-        price_col = 'price' if platform == 'lemana' else 'price_card'
+        price_col = 'price' if platform == 'lemana' else ('price_base' if platform == 'ym' else 'price_card')
         
         cur.execute(f"""
             SELECT 
@@ -839,22 +1160,40 @@ def dashboard_items():
             port=os.getenv('DB_PORT')
         )
         table = 'prices'
+        view = request.args.get('view', 'list')
         lemana_region = request.args.get('lemana_region', 'all')
+        ym_region = request.args.get('ym_region', 'all')
         
         if platform == 'wb':
             table = 'wb_prices'
         elif platform == 'lemana':
             table = 'lemana_prices'
+        elif platform == 'ym':
+            table = 'ym_prices'
         cur = conn.cursor()
         
         # Include status for logic matching
         params = []
         if platform == 'lemana':
-            # Include region_id for the regional dashboard display
-            query = f"SELECT sku, name, competitor_name, price, stock, last_updated, sp_code, url, region_id FROM {table} WHERE 1=1"
+            # Use DISTINCT ON (sku) for list view to show unique products.
+            # For matrix view, fetch ALL records to show all regions.
+            if view == 'matrix':
+                query = f"SELECT sku, name, competitor_name, price, stock, last_updated, sp_code, url, region_id, violation_detected, violation_screenshot, ric_leroy_price FROM {table} WHERE 1=1"
+            else:
+                query = f"SELECT DISTINCT ON (sku) sku, name, competitor_name, price, stock, last_updated, sp_code, url, region_id, violation_detected, violation_screenshot, ric_leroy_price FROM {table} WHERE 1=1"
+            # Removed the region_id filter from the SQL WHERE clause to keep products visible.
             if lemana_region != 'all' and lemana_region:
-                query += " AND region_id = %s"
-                params.append(lemana_region)
+                # We don't filter here because we want to see the products list even if this region is not in DB yet
+                pass
+        elif platform == 'ym':
+            if view == 'matrix':
+                query = f"SELECT sku, name, competitor_name, price_base, price_pay, price_old, last_updated, status, sp_code, url, region_id, violation_detected, violation_screenshot FROM {table} WHERE 1=1"
+            else:
+                query = f"SELECT DISTINCT ON (sku) sku, name, competitor_name, price_base, price_pay, price_old, last_updated, status, sp_code, url, region_id, violation_detected, violation_screenshot FROM {table} WHERE 1=1"
+            if ym_region != 'all' and ym_region:
+                # Same logic as Lemana - we don't necessarily filter out items by region 
+                # but we prefer them in sort. Actually we SHOULD filter if it's list view for consistency.
+                pass 
         else:
             query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code FROM {table} WHERE 1=1"
             
@@ -866,11 +1205,15 @@ def dashboard_items():
             query += " AND competitor_name = %s"
             params.append(store)
         if min_price:
-            price_col = "price" if platform == 'lemana' else "price_nocard"
+            if platform == 'lemana': price_col = "price"
+            elif platform == 'ym': price_col = "price_base"
+            else: price_col = "price_nocard"
             query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
             params.append(min_price)
         if max_price:
-            price_col = "price" if platform == 'lemana' else "price_nocard"
+            if platform == 'lemana': price_col = "price"
+            elif platform == 'ym': price_col = "price_base"
+            else: price_col = "price_nocard"
             query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
             params.append(max_price)
             
@@ -879,9 +1222,18 @@ def dashboard_items():
         cur.execute(count_query, params)
         total_count = cur.fetchone()[0]
         
-        # Add ordering (match Excel report: name, competitor_name for Ozon; sku, competitor for WB) and limit
-        # Use NULLS LAST to ensure items with missing names/skus don't push content off the first page
-        order_by = "name NULLS LAST, competitor_name" if platform == 'ozon' else "sku NULLS LAST, competitor_name"
+        # Add ordering
+        if platform == 'lemana' and lemana_region != 'all' and lemana_region:
+            order_by = f"sku, (CASE WHEN region_id = %s THEN 0 ELSE 1 END), last_updated DESC"
+            params.append(lemana_region)
+        elif platform == 'ym' and ym_region != 'all' and ym_region:
+            order_by = f"sku, (CASE WHEN region_id = %s THEN 0 ELSE 1 END), last_updated DESC"
+            params.append(ym_region)
+        elif platform == 'ozon':
+            order_by = "name NULLS LAST, competitor_name"
+        else:
+            order_by = "sku NULLS LAST, competitor_name"
+            
         query += f" ORDER BY {order_by} LIMIT %s OFFSET %s"
         params.extend([per_page, (page - 1) * per_page])
         
@@ -910,51 +1262,54 @@ def dashboard_items():
                 return '---'
             return str(val)
 
-        LEMANA_REGIONS = {
-            34: "Москва и МО", 506: "Санкт-Петербург", 505: "Краснодар", 508: "Новосибирск", 509: "Омск",
-            510: "Воронеж", 511: "Уфа", 715: "Екатеринбург", 716: "Волгоград", 539: "Красноярск",
-            1437: "Тверь", 1443: "Тюмень", 1447: "Рязань", 1448: "Казань", 2149: "Челябинск",
-            2389: "Новокузнецк", 2393: "Кемерово", 2397: "Барнаул", 2949: "Набережные Челны",
-            3257: "Пенза", 3258: "Тула", 3372: "Ярославль", 3399: "Ульяновск", 3402: "Тольятти",
-            3428: "Кострома", 3429: "Киров", 3439: "Саратов", 3752: "Ставрополь", 4124: "Хабаровск",
-            4794: "Оренбург", 5057: "Пермь", 5342: "Иркутск", 5343: "Петрозаводск", 6048: "Калининград",
-            6062: "Курск", 6063: "Архангельск", 6395: "Саранск", 6466: "Нижний Новгород", 6516: "Череповец",
-            6607: "Калуга", 6609: "Ижевск", 6725: "Белгород", 7011: "Владикавказ", 7073: "Новороссийск",
-            7138: "Владивосток", 7278: "Иваново", 7290: "Липецк", 7874: "Псков", 8157: "Сургут",
-            8232: "Клин", 8332: "Смоленск", 8492: "Наро-Фоминск"
-        }
+        # Use centralized region names
+        LEMANA_REGIONS = LEMANA_REGION_NAMES
+        from core.ym_utils import YM_REGION_NAMES as YM_REGIONS
 
         items = []
-        # Get requested region for Lemana URL formatting
+        # Get requested region for formatting
         req_region = request.args.get('lemana_region')
+        req_region_ym = request.args.get('ym_region')
         
         for r in rows:
             if platform == 'lemana':
-                # Use requested region or item's current region
+                # ... standard lemana logic ...
+                # (I'll keep it as is, just need to make sure I don't break it)
                 target_region = req_region if req_region and req_region != 'all' else 34
-                # r structure: 0=sku, 1=name, 2=comp, 3=price, 4=stock, 5=updated, 6=sp_code, 7=url, 8=region_id
-                
                 fake_status = 'AVAILABLE'
                 if r[4] is not None and int(r[4]) <= 0:
                     fake_status = 'OUT_OF_STOCK'
-                    
+                if req_region and req_region != 'all' and str(r[8]) != str(req_region):
+                    regional_price = '---'; regional_stock = '---'
+                else:
+                    regional_price = format_val(r[3], fake_status); regional_stock = r[4]
                 formatted_url = get_lemana_regional_url(r[7], target_region) if r[7] else None
-                
-                # Get region name
                 rid = r[8] if len(r) > 8 else 34
                 region_name = LEMANA_REGIONS.get(rid, f"Регион {rid}")
-
+                items.append({
+                    'sku': r[0], 'name': r[1], 'seller': r[2], 'promo': regional_price, 'price': regional_price,
+                    'old': '---', 'updated': r[5].strftime('%d.%m %H:%M') if r[5] else '---',
+                    'sp_code': r[6] or '---', 'url': formatted_url, 'region_id': rid, 'region_name': region_name,
+                    'violation_detected': r[9], 'violation_screenshot': r[10], 'ric_leroy_price': r[11]
+                })
+            elif platform == 'ym':
+                # r structure: 0=sku, 1=name, 2=comp, 3=price_base, 4=price_pay, 5=price_old, 6=updated, 7=status, 8=sp_code, 9=url, 10=region_id, 11=viol_det, 12=viol_scr
+                status = r[7]
+                rid = r[10]
+                region_name = YM_REGIONS.get(rid, f"Регион {rid}")
                 items.append({
                     'sku': r[0],
                     'name': r[1],
                     'seller': r[2],
-                    'promo': format_val(r[3], fake_status), 
-                    'price': format_val(r[3], fake_status),
-                    'old': '---',
-                    'updated': r[5].strftime('%d.%m %H:%M') if r[5] else '---',
-                    'sp_code': r[6] or '---',
-                    'url': formatted_url,
-                    'region_name': region_name
+                    'promo': format_val(r[4], status), # Pay price
+                    'price': format_val(r[3], status), # Base price
+                    'old': format_val(r[5], status),
+                    'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---',
+                    'sp_code': r[8] or '---',
+                    'url': r[9],
+                    'region_name': region_name,
+                    'violation_detected': r[11],
+                    'violation_screenshot': r[12]
                 })
             else:
                 status = r[7]
@@ -972,6 +1327,7 @@ def dashboard_items():
         return jsonify({
             'items': items,
             'total_pages': (total_count + per_page - 1) // per_page,
+            'total_count': total_count,
             'current_page': page,
             'stores': stores
         })
@@ -1003,8 +1359,15 @@ def dashboard_export():
             table = 'wb_prices'
         elif platform == 'lemana':
             table = 'lemana_prices'
+        elif platform == 'ym':
+            table = 'ym_prices'
         
-        query = f"SELECT sku as \"SKU\", competitor_name as \"Продавец\", price_card as \"Промо\", price_nocard as \"Цена\", price_old as \"Старая\" FROM {table} WHERE 1=1"
+        if platform == 'lemana':
+            query = f"SELECT sku as \"SKU\", name as \"Название\", competitor_name as \"Продавец\", price as \"Цена\", ric_leroy_price as \"РРЦ\", region_id as \"ID Региона\", last_updated as \"Обновлено\" FROM {table} WHERE 1=1"
+        elif platform == 'ym':
+            query = f"SELECT sku as \"SKU\", name as \"Название\", competitor_name as \"Продавец\", price_pay as \"Цена (Pay)\", price_base as \"Цена (Базовая)\", price_old as \"Старая\", region_id as \"ID Региона\", last_updated as \"Обновлено\" FROM {table} WHERE 1=1"
+        else:
+            query = f"SELECT sku as \"SKU\", name as \"Название\", competitor_name as \"Продавец\", price_card as \"Промо\", price_nocard as \"Цена\", price_old as \"Старая\", last_updated as \"Обновлено\" FROM {table} WHERE 1=1"
         params = []
         
         if search:
@@ -1014,10 +1377,12 @@ def dashboard_export():
             query += " AND competitor_name = %s"
             params.append(store)
         if min_price:
-            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+            p_col = 'price' if platform == 'lemana' else ('price_base' if platform == 'ym' else 'price_nocard')
+            query += f" AND NULLIF(REGEXP_REPLACE({p_col}, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
             params.append(min_price)
         if max_price:
-            query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+            p_col = 'price' if platform == 'lemana' else ('price_base' if platform == 'ym' else 'price_nocard')
+            query += f" AND NULLIF(REGEXP_REPLACE({p_col}, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
             params.append(max_price)
             
         df = pd.read_sql(query, conn, params=params)
@@ -1039,6 +1404,7 @@ def dashboard_export():
     except Exception as e:
         print(f"[ERROR] Export failed: {str(e)}")
         return str(e), 500
+@app.route('/api/schedules', methods=['GET'])
 @login_required
 def get_schedules():
     """Get all schedules"""
@@ -1068,6 +1434,52 @@ def get_scheduler_status():
         })
     except Exception as e:
         return jsonify({'running': False, 'jobs': [], 'error': str(e)})
+
+@app.route('/api/users/<int:user_id>/role', methods=['PUT'])
+@login_required
+@permission_required('can_manage_users')
+def update_user_role(user_id):
+    """Update user role"""
+    try:
+        data = request.json
+        role = data.get('role')
+        if not role:
+            return jsonify({'status': 'error', 'message': 'Role required'}), 400
+        
+        UserManager.update_user_role(user_id, role)
+        return jsonify({'status': 'success', 'message': 'User role updated'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>/parsers', methods=['GET'])
+@login_required
+@permission_required('can_manage_users')
+def get_user_parsers_api(user_id):
+    """Get parser access for a user"""
+    try:
+        access = UserManager.get_user_parser_access(user_id)
+        return jsonify({'status': 'success', 'access': access})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>/parsers', methods=['POST'])
+@login_required
+@permission_required('can_manage_users')
+def set_user_parsers_api(user_id):
+    """Set parser access for a user"""
+    try:
+        data = request.json
+        for platform, settings in data.items():
+            UserManager.set_user_parser_access(
+                user_id, 
+                platform, 
+                can_access=settings.get('can_access'),
+                can_run=settings.get('can_run'),
+                send_telegram=settings.get('send_telegram')
+            )
+        return jsonify({'status': 'success', 'message': 'Parser access updated'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # User Management Routes
 @app.route('/users')

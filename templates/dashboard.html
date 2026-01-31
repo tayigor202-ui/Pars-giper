@@ -3,27 +3,34 @@
 {% block title %}Дашборд - Analytics{% endblock %}
 
 {% block content %}
-<div class="row align-items-end mb-4">
-    <div class="col-lg-8">
-        <h1 class="page-title">Дашборд v2.0</h1>
-        <p class="page-subtitle">Обзор производительности и детальная аналитика.</p>
+<div class="row align-items-center mb-5">
+    <div class="col-lg-6">
+        <!-- New Knitted Logo on the Left -->
+        <img src="{{ url_for('static', filename='logo.png') }}?v={{ v }}" alt="Parser Logo"
+            style="width: 280px; mix-blend-mode: multiply;">
     </div>
-    <div class="col-lg-4 text-lg-end mb-3">
-        <div class="btn-group p-1" style="background: rgba(255,255,255,0.05); border-radius: 14px;">
+    <div class="col-lg-6 text-lg-end">
+        <!-- Platform Selection on the Right -->
+        <div class="btn-group p-2"
+            style="border-radius: 18px; background: #fdfcf9; border: 2px solid #e5e1d1; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
             <input type="radio" class="btn-check" name="platform-toggle" id="lemana-btn">
-            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="lemana-btn">Lemana Pro</label>
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0 tactile-switch" for="lemana-btn">Lemana
+                Pro</label>
 
             <input type="radio" class="btn-check" name="platform-toggle" id="ozon-btn" checked>
-            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="ozon-btn">Ozon</label>
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0 tactile-switch" for="ozon-btn">Ozon</label>
 
             <input type="radio" class="btn-check" name="platform-toggle" id="wb-btn">
-            <label class="btn btn-sm px-4 rounded-3 text-white border-0" for="wb-btn">WB</label>
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0 tactile-switch" for="wb-btn">WB</label>
+
+            <input type="radio" class="btn-check" name="platform-toggle" id="ym-btn">
+            <label class="btn btn-sm px-4 rounded-3 text-white border-0 tactile-switch" for="ym-btn">Y.Market</label>
         </div>
     </div>
 </div>
 
 <!-- Stats row -->
-<div class="row g-4 mb-5">
+<div class="row g-4 mb-5" id="stats-row">
     <div class="col-md-3">
         <div class="stat-card">
             <div class="stat-label">Товары</div>
@@ -51,15 +58,15 @@
 </div>
 
 <!-- Chart row -->
-<div class="row mb-5">
+<div class="row mb-5" id="chart-row">
     <div class="col-12">
         <div class="main-card">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h3 class="h5 mb-0 fw-bold">ТОП Магазинов по средней цене</h3>
                 <span class="badge bg-white bg-opacity-10 text-white-50 px-3 py-2 rounded-pill">Real-time</span>
             </div>
-            <div style="height: 300px; position: relative;">
-                <canvas id="priceChart"></canvas>
+            <div id="top-stores-list" style="min-height: 200px; position: relative;" class="py-2">
+                <!-- Scarves will be injected here -->
             </div>
         </div>
     </div>
@@ -72,82 +79,50 @@
             <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                 <div class="d-flex align-items-center gap-3">
                     <h3 class="h5 mb-0 fw-bold">Товары и цены</h3>
-                    <div class="btn-group ms-2">
-                        <button class="btn btn-outline-light btn-sm px-3 rounded-pill border-opacity-25 active"
-                            id="view-list-btn" onclick="setView('list')">
+                    <div class="btn-group ms-2"
+                        style="background: #fdfcf9; border-radius: 20px; padding: 2px; border: 2px solid #e5e1d1; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
+                        <button class="btn btn-sm px-3 rounded-pill"
+                            style="color: #3b2b1d; font-weight: 800; border: none;" id="view-list-btn"
+                            onclick="setView('list')">
                             <i class="bi bi-list-ul"></i>
                         </button>
-                        <button class="btn btn-outline-light btn-sm px-3 rounded-pill border-opacity-25 ms-1"
-                            id="view-matrix-btn" onclick="setView('matrix')">
+                        <button class="btn btn-sm px-3 rounded-pill"
+                            style="color: #3b2b1d; font-weight: 800; border: none;" id="view-matrix-btn"
+                            onclick="setView('matrix')">
                             <i class="bi bi-grid-3x3-gap"></i>
                         </button>
                     </div>
                 </div>
-                <!-- Lemana Regional Actions -->
-                <div id="lemana-actions" class="d-none d-flex align-items-center gap-2">
-                    <select id="lemana-region-select"
-                        class="form-select form-select-sm rounded-pill bg-dark text-white border-0 px-3"
-                        style="width: 200px;">
-                        <option value="34">Москва и МО</option>
-                        <option value="506">Санкт-Петербург</option>
-                        <option value="505">Краснодар</option>
-                        <option value="508">Новосибирск</option>
-                        <option value="509">Омск</option>
-                        <option value="510">Воронеж</option>
-                        <option value="511">Уфа</option>
-                        <option value="715">Екатеринбург</option>
-                        <option value="716">Волгоград</option>
-                        <option value="539">Красноярск</option>
-                        <option value="1437">Тверь</option>
-                        <option value="1443">Тюмень</option>
-                        <option value="1447">Рязань</option>
-                        <option value="1448">Казань</option>
-                        <option value="2149">Челябинск</option>
-                        <option value="2389">Новокузнецк</option>
-                        <option value="2393">Кемерово</option>
-                        <option value="2397">Барнаул</option>
-                        <option value="2949">Набережные Челны</option>
-                        <option value="3257">Пенза</option>
-                        <option value="3258">Тула</option>
-                        <option value="3372">Ярославль</option>
-                        <option value="3399">Ульяновск</option>
-                        <option value="3402">Тольятти</option>
-                        <option value="3428">Кострома</option>
-                        <option value="3429">Киров</option>
-                        <option value="3439">Саратов</option>
-                        <option value="3752">Ставрополь</option>
-                        <option value="4124">Хабаровск</option>
-                        <option value="4794">Оренбург</option>
-                        <option value="5057">Пермь</option>
-                        <option value="5342">Иркутск</option>
-                        <option value="5343">Петрозаводск</option>
-                        <option value="6048">Калининград</option>
-                        <option value="6062">Курск</option>
-                        <option value="6063">Архангельск</option>
-                        <option value="6395">Саранск</option>
-                        <option value="6466">Нижний Новгород</option>
-                        <option value="6516">Череповец</option>
-                        <option value="6607">Калуга</option>
-                        <option value="6609">Ижевск</option>
-                        <option value="6725">Белгород</option>
-                        <option value="7011">Владикавказ</option>
-                        <option value="7073">Новороссийск</option>
-                        <option value="7138">Владивосток</option>
-                        <option value="7278">Иваново</option>
-                        <option value="7290">Липецк</option>
-                        <option value="7874">Псков</option>
-                        <option value="8157">Сургут</option>
-                        <option value="8232">Клин</option>
-                        <option value="8332">Смоленск</option>
-                        <option value="8492">Наро-Фоминск</option>
-                        <option value="all">Все регионы</option>
-                    </select>
-                    <button id="lemana-targeted-parse-btn" class="btn btn-success btn-sm px-4 rounded-pill fw-bold">
+                <!-- Universal Parsing Action -->
+                <div id="parsing-actions" class="d-flex align-items-center gap-2">
+                    <div id="lemana-region-wrapper" class="d-none">
+                        <select id="lemana-region-select"
+                            class="form-select form-select-sm rounded-pill bg-white text-dark border-1 px-3"
+                            style="width: 200px; border-color: #e5e1d1;">
+                            <option value="all">Все регионы</option>
+                            {% for rid, rname in lemana_regions.items() %}
+                            <option value="{{ rid }}">{{ rname }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div id="ym-region-wrapper" class="d-none">
+                        <select id="ym-region-select"
+                            class="form-select form-select-sm rounded-pill bg-white text-dark border-1 px-3"
+                            style="width: 200px; border-color: #e5e1d1;">
+                            <option value="all">Все регионы</option>
+                            {% for rid, rname in ym_regions.items() %}
+                            <option value="{{ rid }}">{{ rname }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button id="targeted-parse-btn" class="btn btn-action btn-ozon btn-sm px-4 rounded-pill fw-bold">
                         <i class="bi bi-play-fill me-1"></i> Парсинг
                     </button>
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-outline-light btn-sm px-3 rounded-pill border-opacity-25" type="button"
+                    <button class="btn btn-sm px-3 rounded-pill" type="button"
+                        style="background: #fdfcf9; border: 2px solid #e5e1d1; color: #3b2b1d; font-weight: 800;"
                         data-bs-toggle="offcanvas" data-bs-target="#offcanvasFilters">
                         <i class="bi bi-sliders2 me-2"></i> Фильтры
                     </button>
@@ -157,13 +132,21 @@
                 </div>
             </div>
 
+            <!-- Selection Banner -->
+            <div id="selection-banner" class="alert d-none mb-3 py-2 text-center"
+                style="background: #fdfcf9; border: 2px solid #e5e1d1; border-radius: 12px; font-size: 0.9rem; color: #5c4b3a;">
+                <span id="selection-text">Выбраны все товары на этой странице.</span>
+                <a href="#" id="select-all-global-btn" class="ms-2 fw-bold text-primary text-decoration-none">Выбрать
+                    все товары из базы</a>
+            </div>
+
             <!-- Table Container with fixed height -->
             <div id="table-scroll-container" class="table-responsive rounded-4"
-                style="background: #0f1016; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-height: 65vh; overflow: auto;">
+                style="background: transparent; border: 2px solid #e5e1d1; max-height: 65vh; overflow: auto;">
                 <table class="table border-0 mb-0" id="main-data-table"
-                    style="--bs-table-bg: transparent; --bs-table-color: white; border-collapse: separate; border-spacing: 0;">
+                    style="--bs-table-bg: transparent; --bs-table-color: #2d261f; border-collapse: separate; border-spacing: 0;">
                     <thead style="position: sticky; top: 0; z-index: 20;">
-                        <tr id="table-headers" style="background: #0a0b10;">
+                        <tr id="table-headers" style="background: #e9e4d1;">
                             <th class="ps-4" style="width: 40px;">
                                 <div class="form-check m-0">
                                     <input class="form-check-input" type="checkbox" id="select-all-checkbox">
@@ -207,33 +190,52 @@
 
 <!-- Sidebar Filters (Offcanvas) -->
 <div class="offcanvas offcanvas-end border-0" tabindex="-1" id="offcanvasFilters"
-    style="background: #16171d; width: 350px;">
-    <div class="offcanvas-header border-bottom border-white border-opacity-10 py-4">
-        <h5 class="offcanvas-title fw-bold text-white"><i class="bi bi-sliders2 me-2 text-primary"></i>Фильтры</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+    style="background: #fdfcf9; width: 350px; border-left: 2px solid #e5e1d1 !important; box-shadow: -10px 0 30px rgba(139, 69, 19, 0.1); background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.01) 0px, rgba(0, 0, 0, 0.01) 1px, transparent 1px, transparent 10px), repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.01) 0px, rgba(0, 0, 0, 0.01) 1px, transparent 1px, transparent 10px);">
+    <div class="offcanvas-header border-bottom border-secondary border-opacity-10 py-4">
+        <h5 class="offcanvas-title fw-bold" style="color: #3b2b1d;"><i class="bi bi-sliders2 me-2"
+                style="color: #6366f1;"></i>Фильтры</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
     </div>
     <div class="offcanvas-body p-4">
         <div class="mb-4">
-            <label class="form-label small text-secondary fw-bold mb-2">ПОИСК</label>
+            <label class="form-label small fw-bold mb-2" style="color: #5c4b3a; letter-spacing: 1px;">ПОИСК</label>
             <input type="text" id="filter-search" class="form-control" placeholder="Наименование или SKU...">
         </div>
         <div class="mb-4">
-            <label class="form-label small text-secondary fw-bold mb-2">МАГАЗИН</label>
+            <label class="form-label small fw-bold mb-2" style="color: #5c4b3a; letter-spacing: 1px;">МАГАЗИН</label>
             <select id="filter-store" class="form-select">
                 <option value="">Все магазины</option>
             </select>
         </div>
         <div class="mb-4">
-            <label class="form-label small text-secondary fw-bold mb-2">ОТ ЦЕНЫ</label>
+            <label class="form-label small fw-bold mb-2" style="color: #5c4b3a; letter-spacing: 1px;">ОТ ЦЕНЫ</label>
             <input type="number" id="filter-min-price" class="form-control" placeholder="0 ₽">
         </div>
         <div class="mb-4">
-            <label class="form-label small text-secondary fw-bold mb-2">ДО ЦЕНЫ</label>
+            <label class="form-label small fw-bold mb-2" style="color: #5c4b3a; letter-spacing: 1px;">ДО ЦЕНЫ</label>
             <input type="number" id="filter-max-price" class="form-control" placeholder="999 999 ₽">
         </div>
-        <button id="apply-filters-btn" class="btn btn-action w-100 py-3 mt-3" data-bs-dismiss="offcanvas">
+        <button id="apply-filters-btn" class="btn btn-action w-100 py-3 mt-3 btn-ozon" data-bs-dismiss="offcanvas">
             Применить фильтры
         </button>
+    </div>
+</div>
+
+<!-- Screenshot Modal -->
+<div class="modal fade" id="screenshotModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="background: #fdfcf9;">
+            <div class="modal-header border-bottom border-secondary border-opacity-10 py-3">
+                <h5 class="modal-title fw-bold" style="color: #3b2b1d;"><i
+                        class="bi bi-camera me-2 text-primary"></i>Скриншот нарушения</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0 text-center bg-white"
+                style="min-height: 400px; display: flex; align-items: center; justify-content: center;">
+                <img id="screenshot-viewer-img" src="" class="img-fluid"
+                    style="max-height: 85vh; border: 4px solid #fff; box-shadow: 0 0 20px rgba(0,0,0,0.1);">
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -246,7 +248,40 @@
     let totalPages = 1;
     let currentView = 'list';
     let isLoading = false;
+    let totalItems = 0;
+    let globalSelection = false;
     const brandColor = '#6366f1';
+
+    function toggleDashboard() {
+        const statsRow = document.getElementById('stats-row');
+        const chartRow = document.getElementById('chart-row');
+        const parseBtn = document.getElementById('targeted-parse-btn');
+        const lemanaRegionWrapper = document.getElementById('lemana-region-wrapper');
+        const ymRegionWrapper = document.getElementById('ym-region-wrapper');
+
+        // Remove all platform classes first
+        parseBtn.classList.remove('btn-ozon', 'btn-wb', 'btn-lemana', 'btn-ym');
+
+        lemanaRegionWrapper.classList.add('d-none');
+        ymRegionWrapper.classList.add('d-none');
+
+        if (currentPlatform === 'lemana') {
+            statsRow.style.setProperty('display', 'none', 'important');
+            chartRow.style.setProperty('display', 'none', 'important');
+            parseBtn.classList.add('btn-lemana');
+            lemanaRegionWrapper.classList.remove('d-none');
+        } else if (currentPlatform === 'ym') {
+            statsRow.style.setProperty('display', 'none', 'important');
+            chartRow.style.setProperty('display', 'none', 'important');
+            parseBtn.classList.add('btn-ym');
+            ymRegionWrapper.classList.remove('d-none');
+        } else {
+            statsRow.style.setProperty('display', 'flex', 'important');
+            chartRow.style.setProperty('display', 'flex', 'important');
+            if (currentPlatform === 'ozon') parseBtn.classList.add('btn-ozon');
+            else if (currentPlatform === 'wb') parseBtn.classList.add('btn-wb');
+        }
+    }
 
     function setView(view) {
         if (currentView === view) return;
@@ -313,9 +348,41 @@
         fetch(`/api/dashboard/chart?platform=${currentPlatform}`)
             .then(r => r.json())
             .then(data => {
-                chart.data.labels = data.labels;
-                chart.data.datasets[0].data = data.data;
-                chart.update();
+                const container = document.getElementById('top-stores-list');
+                container.innerHTML = '';
+
+                if (!data.labels || data.labels.length === 0) {
+                    container.innerHTML = '<div class="text-center py-5 text-secondary opacity-50">Нет данных для отображения</div>';
+                    return;
+                }
+
+                const maxVal = Math.max(...data.data);
+
+                data.labels.forEach((label, i) => {
+                    const val = data.data[i];
+                    const pct = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+
+                    const row = document.createElement('div');
+                    row.className = 'scarf-row';
+                    row.innerHTML = `
+                        <div class="scarf-label">
+                            <span>${label}</span>
+                            <span>${val.toLocaleString('ru-RU')} ₽</span>
+                        </div>
+                        <div class="scarf-track">
+                            <div class="scarf-bar" style="width: 0%;" data-goal="${pct}%">
+                                ${pct}%
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(row);
+
+                    // Trigger animation in next frame
+                    setTimeout(() => {
+                        const bar = row.querySelector('.scarf-bar');
+                        bar.style.width = pct + '%';
+                    }, 100 + (i * 100));
+                });
             });
     }
 
@@ -334,9 +401,9 @@
         loader.classList.remove('d-none');
 
         const lemanaRegionValue = document.getElementById('lemana-region-select').value;
-        const apiRegion = (currentView === 'matrix' && platform === 'lemana') ? 'all' : lemanaRegionValue;
-        const perPage = (currentView === 'matrix' && platform === 'lemana') ? 1000 : 20;
-        const url = `/api/dashboard/items?platform=${platform}&page=${currentPage}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${min_price}&max_price=${max_price}&lemana_region=${apiRegion}&per_page=${perPage}`;
+        const ymRegionValue = document.getElementById('ym-region-select').value;
+        const perPage = (currentView === 'matrix' && (platform === 'lemana' || platform === 'ym')) ? 1000 : 20;
+        const url = `/api/dashboard/items?platform=${platform}&page=${currentPage}&search=${encodeURIComponent(search)}&store=${encodeURIComponent(store)}&min_price=${min_price}&max_price=${max_price}&lemana_region=${lemanaRegionValue}&ym_region=${ymRegionValue}&per_page=${perPage}&view=${currentView}`;
 
         const tbody = document.getElementById('products-table-body');
         if (!append) {
@@ -356,6 +423,11 @@
                 }
 
                 totalPages = data.total_pages || 1;
+                totalItems = data.total_count || 0;
+
+                // Reset global selection on new load
+                globalSelection = false;
+                document.getElementById('selection-banner').classList.add('d-none');
 
                 // Update filter stores if needed
                 if (data.stores && document.getElementById('filter-store').options.length <= 1) {
@@ -389,6 +461,7 @@
     function renderListTable(items, append) {
         const thead = document.getElementById('table-headers');
         const isLemana = currentPlatform === 'lemana';
+        const isYM = currentPlatform === 'ym';
 
         thead.innerHTML = `
             <th class="ps-4" style="width: 40px;">
@@ -398,11 +471,21 @@
             </th>
             <th><i class="bi bi-hash me-2"></i>SKU</th>
             <th><i class="bi bi-alphabet-uppercase me-2"></i>Название</th>
-            ${isLemana ? '<th><i class="bi bi-geo-alt me-2"></i>Регион</th>' : ''}
-            <th><i class="bi bi-shop me-2"></i>Продавец</th>
-            <th><i class="bi bi-tag-fill me-2 text-info"></i>${currentPlatform === 'wb' ? 'Промо' : 'Цена с картой'}</th>
-            <th><i class="bi bi-wallet2 me-2 text-white-50"></i>${currentPlatform === 'wb' ? 'Цена' : 'Цена без карты'}</th>
-            <th><i class="bi bi-percent me-2 text-danger"></i>${currentPlatform === 'wb' ? 'Старая' : 'Старая цена'}</th>
+            ${isLemana ? `
+                <th><i class="bi bi-geo-alt me-2"></i>Регион</th>
+                <th><i class="bi bi-currency-ruble me-2 text-info"></i>РРЦ (РИЦ)</th>
+                <th><i class="bi bi-tag-fill me-2 text-warning"></i>Цена Lemana</th>
+                <th><i class="bi bi-plus-minus me-2"></i>Отклонение</th>
+            ` : isYM ? `
+                <th><i class="bi bi-geo-alt me-2"></i>Регион</th>
+                <th><i class="bi bi-currency-ruble me-2 text-info"></i>Цена (Pay)</th>
+                <th><i class="bi bi-tag-fill me-2 text-warning"></i>Базовая цена</th>
+            ` : `
+                <th><i class="bi bi-shop me-2"></i>Продавец</th>
+                <th><i class="bi bi-tag-fill me-2 text-info"></i>${currentPlatform === 'wb' ? 'Промо' : 'Цена с картой'}</th>
+                <th><i class="bi bi-wallet2 me-2 text-white-50"></i>${currentPlatform === 'wb' ? 'Цена' : 'Цена без карты'}</th>
+                <th><i class="bi bi-percent me-2 text-danger"></i>${currentPlatform === 'wb' ? 'Старая' : 'Старая цена'}</th>
+            `}
             <th class="pe-4 text-end"><i class="bi bi-clock-history me-2"></i>Обновлено</th>
         `;
 
@@ -410,26 +493,46 @@
         document.getElementById('select-all-checkbox').addEventListener('change', function () {
             const checkboxes = document.querySelectorAll('.item-checkbox');
             checkboxes.forEach(cb => cb.checked = this.checked);
+
+            const banner = document.getElementById('selection-banner');
+            if (this.checked && totalPages > 1) {
+                document.getElementById('selection-text').innerText = `Выбраны товары на этой странице (до ${items.length}).`;
+                document.getElementById('select-all-global-btn').innerText = `Выбрать все товары из базы (${totalItems})`;
+                banner.classList.remove('d-none');
+            } else {
+                banner.classList.add('d-none');
+                globalSelection = false;
+            }
+        });
+
+        document.getElementById('select-all-global-btn').addEventListener('click', function (e) {
+            e.preventDefault();
+            globalSelection = true;
+            document.getElementById('selection-text').innerText = `Выбраны все товары (${totalItems}) из базы данных.`;
+            this.classList.add('d-none');
         });
 
         const tbody = document.getElementById('products-table-body');
         if (!append) tbody.innerHTML = '';
 
         if (items.length === 0 && !append) {
-            tbody.innerHTML = `<tr><td colspan="${isLemana ? 9 : 8}" class="text-center py-4 text-secondary">Данные не найдены</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${(isLemana || isYM) ? 9 : 8}" class="text-center py-4 text-secondary">Данные не найдены</td></tr>`;
             return;
         }
 
-        items.forEach((item, index) => {
+        items.forEach((item, idx_item) => {
             const { sku, name, seller, promo, price, old, updated, region_name } = item;
             let sellerClass = 'badge-ozon';
             if (currentPlatform === 'wb') sellerClass = 'badge-wb';
             else if (currentPlatform === 'lemana') sellerClass = 'badge-lemana';
+            else if (currentPlatform === 'ym') sellerClass = 'badge-ym';
 
             if (seller && seller.toLowerCase().includes('холодильник')) sellerClass = 'badge-holod';
 
             const isSpecial = promo && promo !== '---' && !promo.includes('Ошибка') && !promo.includes('закончился');
             let discountBadge = '';
+            let deviationHtml = '';
+
             try {
                 const p = parseFloat(String(promo).replace(/[^\d]/g, ''));
                 const o = parseFloat(String(old).replace(/[^\d]/g, ''));
@@ -437,10 +540,17 @@
                     const pct = Math.round((1 - p / o) * 100);
                     if (pct > 0) discountBadge = `<span class="discount-pill">-${pct}%</span>`;
                 }
+                if (isLemana && item.ric_leroy_price && p > 0) {
+                    const rrc = parseFloat(item.ric_leroy_price);
+                    const diff = p - rrc;
+                    const diffClass = diff < 0 ? 'text-danger' : (diff > 0 ? 'text-success' : 'text-secondary');
+                    const diffSign = diff > 0 ? '+' : '';
+                    deviationHtml = `<span class="fw-bold ${diffClass}">${diffSign}${diff.toLocaleString('ru-RU')} ₽</span>`;
+                }
             } catch (e) { }
 
             tbody.innerHTML += `
-                <tr style="animation: fadeInUp 0.4s ease forwards ${index * 0.05}s; opacity: 0;">
+                <tr style="animation: fadeInUp 0.4s ease forwards ${idx_item * 0.05}s; opacity: 0;">
                     <td class="ps-4">
                         <div class="form-check m-0">
                             <input class="form-check-input item-checkbox" type="checkbox" value="${sku}">
@@ -448,11 +558,33 @@
                     </td>
                     <td>${item.url ? `<a href="${item.url}" target="_blank" class="sku-pill text-decoration-none">${sku}</a>` : `<span class="sku-pill">${sku}</span>`}</td>
                     <td class="fw-bold name-cell" title="${name}">${name}</td>
-                    ${isLemana ? `<td><span class="text-info small fw-bold">${region_name || '---'}</span></td>` : ''}
-                    <td><span class="seller-badge ${sellerClass}">${seller}</span></td>
-                    <td class="fw-bold price-primary ${isSpecial ? 'text-warning' : ''}">${promo} ${discountBadge}</td>
-                    <td class="fw-bold price-secondary">${price}</td>
-                    <td class="text-secondary text-decoration-line-through small opacity-50">${old}</td>
+                    ${isLemana ? `
+                        <td><span class="text-info small fw-bold">${region_name || '---'}</span></td>
+                        <td class="fw-bold text-secondary">${item.ric_leroy_price ? item.ric_leroy_price.toLocaleString('ru-RU') + ' ₽' : '---'}</td>
+                        <td class="fw-bold price-primary ${isSpecial ? 'text-warning' : ''}">
+                            ${promo}
+                            ${item.violation_screenshot ? `
+                                <button onclick="viewScreenshot('${item.violation_screenshot}')" class="btn btn-sm p-0 ms-2 border-0 text-primary" title="Посмотреть скриншот">
+                                    <i class="bi bi-camera-fill" style="font-size: 1.1rem;"></i>
+                                </button>` : ''}
+                        </td>
+                        <td>${deviationHtml || '---'}</td>
+                    ` : isYM ? `
+                        <td><span class="text-info small fw-bold">${region_name || '---'}</span></td>
+                        <td class="fw-bold price-primary ${isSpecial ? 'text-warning' : ''}">
+                            ${promo}
+                            ${item.violation_screenshot ? `
+                                <button onclick="viewScreenshot('${item.violation_screenshot}')" class="btn btn-sm p-0 ms-2 border-0 text-primary" title="Посмотреть скриншот">
+                                    <i class="bi bi-camera-fill" style="font-size: 1.1rem;"></i>
+                                </button>` : ''}
+                        </td>
+                        <td class="fw-bold price-secondary">${price}</td>
+                    ` : `
+                        <td><span class="seller-badge ${sellerClass}">${seller}</span></td>
+                        <td class="fw-bold price-primary ${isSpecial ? 'text-warning' : ''}">${promo} ${discountBadge}</td>
+                        <td class="fw-bold price-secondary">${price}</td>
+                        <td class="text-secondary text-decoration-line-through small opacity-50">${old}</td>
+                    `}
                     <td class="pe-4 text-end text-secondary small">${updated}</td>
                 </tr>
             `;
@@ -480,34 +612,48 @@
                 productsMap[skuKey].sp_code = item.sp_code;
             }
 
-            const segmentKey = (isLemana ? (item.region_name || "").trim() : (item.seller || "").trim());
+            const segmentKey = ((isLemana || currentPlatform === 'ym') ? (item.region_id || "").toString() : (item.seller || "").trim());
             if (segmentKey) {
-                productsMap[skuKey].segments[segmentKey] = { promo: item.promo, sku: item.sku };
+                productsMap[skuKey].segments[segmentKey] = {
+                    promo: item.promo,
+                    sku: item.sku,
+                    screenshot: item.violation_screenshot
+                };
             }
         });
 
-        // Determine Columns - For Lemana Matrix, we ALWAYS show all regions for comparison
+        // Determine Columns
         let columnKeys = [];
         if (isLemana) {
             const options = document.querySelectorAll('#lemana-region-select option');
             options.forEach(opt => {
                 const text = opt.innerText.trim();
-                if (opt.value !== 'all' && text) {
-                    columnKeys.push(text);
+                const rid = opt.value;
+                if (rid !== 'all' && rid && text) {
+                    columnKeys.push({ id: rid, label: text });
+                }
+            });
+        } else if (currentPlatform === 'ym') {
+            const options = document.querySelectorAll('#ym-region-select option');
+            options.forEach(opt => {
+                const text = opt.innerText.trim();
+                const rid = opt.value;
+                if (rid !== 'all' && rid && text) {
+                    columnKeys.push({ id: rid, label: text });
                 }
             });
         } else {
-            columnKeys = Array.from(new Set(items.map(i => (i.seller || "").trim()))).filter(k => k).sort();
+            columnKeys = Array.from(new Set(items.map(i => (i.seller || "").trim()))).filter(k => k).sort().map(k => ({ id: k, label: k }));
         }
 
         const thead = document.getElementById('table-headers');
         const table = document.getElementById('main-data-table');
-        table.style.width = isLemana ? 'auto' : '100%';
+        table.style.width = (isLemana || currentPlatform === 'ym') ? 'auto' : '100%';
         table.style.tableLayout = 'auto';
         thead.innerHTML = `
             <th class="ps-4" style="width: 300px; min-width: 300px;">Наименование</th>
             <th style="width: 120px; min-width: 120px;">СП-КОД</th>
-            ${columnKeys.map(k => `<th style="min-width: 150px;">${k}</th>`).join('')}
+            ${columnKeys.map(k => `<th style="min-width: 150px;">${k.label}</th>`).join('')}
         `;
 
         const tbody = document.getElementById('products-table-body');
@@ -525,13 +671,19 @@
                     <td style="width: 120px; min-width: 120px;"><span class="sku-pill" style="color:#22d3ee; border-color: rgba(34,211,238,0.2);">${product.sp_code}</span></td>
             `;
 
-            columnKeys.forEach(key => {
-                const info = product.segments[key];
+            columnKeys.forEach(col => {
+                const info = product.segments[col.id];
                 if (info) {
                     const isOutOfStock = info.promo === 'Товар закончился';
                     rowHtml += `
                         <td>
-                            <div class="small fw-bold ${isOutOfStock ? 'text-danger' : 'text-warning'}">${info.promo}</div>
+                            <div class="small fw-bold ${isOutOfStock ? 'text-danger' : 'text-warning'}">
+                                ${info.promo}
+                                ${info.screenshot ? `
+                                    <button onclick="viewScreenshot('${info.screenshot}')" class="btn btn-sm p-0 ms-1 border-0 text-primary opacity-75" title="Скриншот">
+                                        <i class="bi bi-camera-fill" style="font-size: 1rem;"></i>
+                                    </button>` : ''}
+                            </div>
                             <div class="text-secondary" style="font-size: 0.65rem; opacity: 0.5;">${info.sku}</div>
                         </td>`;
                 } else {
@@ -556,63 +708,90 @@
     });
 
     // Handlers
+    document.querySelectorAll('input[name="platform-toggle"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const id = e.target.id;
+            if (id === 'lemana-btn') currentPlatform = 'lemana';
+            else if (id === 'wb-btn') currentPlatform = 'wb';
+            else if (id === 'ym-btn') currentPlatform = 'ym';
+            else currentPlatform = 'ozon';
+
+            // Toggle regional selectors
+            document.getElementById('lemana-region-wrapper').classList.toggle('d-none', currentPlatform !== 'lemana');
+            document.getElementById('ym-region-wrapper').classList.toggle('d-none', currentPlatform !== 'ym');
+
+            // Reset UI and reload
+            document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
+            currentPage = 1;
+            document.getElementById('products-table-body').innerHTML = '';
+            toggleDashboard();
+            loadStats();
+            loadChart();
+            loadTable();
+        });
+    });
+
     document.getElementById('lemana-region-select').addEventListener('change', () => {
         currentPage = 1;
         document.getElementById('products-table-body').innerHTML = '';
         loadTable();
     });
 
-    document.getElementById('ozon-btn').addEventListener('change', () => {
-        currentPlatform = 'ozon';
-        document.getElementById('lemana-actions').classList.add('d-none');
-        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
-        currentPage = 1;
-        document.getElementById('products-table-body').innerHTML = ''; // Clear table on platform change
-        loadStats(); loadChart(); loadTable();
-    });
-    document.getElementById('wb-btn').addEventListener('change', () => {
-        currentPlatform = 'wb';
-        document.getElementById('lemana-actions').classList.add('d-none');
-        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
+    document.getElementById('ym-region-select').addEventListener('change', () => {
         currentPage = 1;
         document.getElementById('products-table-body').innerHTML = '';
-        loadStats(); loadChart(); loadTable();
-    });
-    document.getElementById('lemana-btn').addEventListener('change', () => {
-        currentPlatform = 'lemana';
-        document.getElementById('lemana-actions').classList.remove('d-none');
-        document.getElementById('filter-store').innerHTML = '<option value="">Все магазины</option>';
-        currentPage = 1;
-        document.getElementById('products-table-body').innerHTML = '';
-        loadStats(); loadChart(); loadTable();
+        loadTable();
     });
 
     // Targeted Parsing Logic
-    document.getElementById('lemana-targeted-parse-btn').addEventListener('click', function () {
+    // Unified Targeted Parsing Logic
+    document.getElementById('targeted-parse-btn').addEventListener('click', function () {
         const selectedCheckboxes = document.querySelectorAll('.item-checkbox:checked');
-        if (selectedCheckboxes.length === 0) {
+        if (selectedCheckboxes.length === 0 && !globalSelection) {
             alert('Сначала выберите хотя бы один товар чекбоксом в таблице.');
             return;
         }
 
-        const skus = Array.from(selectedCheckboxes).map(cb => cb.value);
-        const regionValue = document.getElementById('lemana-region-select').value;
-        let regionIds = [];
+        const skus = globalSelection ? 'all' : Array.from(selectedCheckboxes).map(cb => cb.value);
+        let payload = { skus };
 
-        if (regionValue === 'all') {
-            regionIds = [34, 506, 505, 508, 509, 510, 511, 715, 716, 539, 1437, 1443, 1447, 1448, 2149, 2389, 2393, 2397, 2949, 3257, 3258, 3372, 3399, 3402, 3428, 3429, 3439, 3752, 4124, 4794, 5057, 5342, 5343, 6048, 6062, 6063, 6395, 6466, 6516, 6607, 6609, 6725, 7011, 7073, 7138, 7278, 7290, 7874, 8157, 8232, 8332, 8492];
-        } else {
-            regionIds = [parseInt(regionValue)];
+        // Include filters if globalSelection is true
+        if (globalSelection) {
+            payload.filters = {
+                search: document.getElementById('filter-search').value,
+                min_price: document.getElementById('filter-min-price').value,
+                max_price: document.getElementById('filter-max-price').value,
+                store: document.getElementById('filter-store').value
+            };
+        }
+
+        let apiEndpoint = `/api/${currentPlatform}/parse_targeted`;
+
+        if (currentPlatform === 'lemana' || currentPlatform === 'ym') {
+            const selectorId = currentPlatform === 'lemana' ? 'lemana-region-select' : 'ym-region-select';
+            const regionValue = document.getElementById(selectorId).value;
+            let regionIds = [];
+            if (regionValue === 'all') {
+                const options = document.querySelectorAll(`#${selectorId} option`);
+                options.forEach(opt => {
+                    if (opt.value !== 'all') {
+                        regionIds.push(parseInt(opt.value));
+                    }
+                });
+            } else {
+                regionIds = [parseInt(regionValue)];
+            }
+            payload.region_ids = regionIds;
         }
 
         this.disabled = true;
         const originalText = this.innerHTML;
         this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Запуск...';
 
-        fetch('/api/lemana/parse_targeted', {
+        fetch(apiEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ skus, region_ids: regionIds })
+            body: JSON.stringify(payload)
         })
             .then(res => res.json())
             .then(data => {
@@ -658,8 +837,16 @@
         window.location.href = url;
     });
 
+    function viewScreenshot(url) {
+        if (!url) return;
+        const img = document.getElementById('screenshot-viewer-img');
+        img.src = url.startsWith('/') ? url : '/' + url;
+        const modal = new bootstrap.Modal(document.getElementById('screenshotModal'));
+        modal.show();
+    }
+
     // Initial load
-    loadStats(); loadChart(); loadTable();
+    toggleDashboard(); loadStats(); loadChart(); loadTable();
 </script>
 <style>
     .btn-check:checked+label,
@@ -676,18 +863,19 @@
     }
 
     #table-headers th {
-        background: #0a0b10 !important;
-        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        background: #e9e4d1 !important;
+        border-bottom: 3px solid #d4ceb8 !important;
         padding: 18px 10px;
         font-size: 0.7rem;
-        font-weight: 700;
+        font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: #94a3b8;
+        color: #5c4b3a !important;
         position: sticky;
         top: 0;
         z-index: 25;
         white-space: nowrap;
+        box-shadow: 0 4px 6px -1px rgba(139, 69, 19, 0.05);
     }
 
     /* Sticky columns for Matrix View */
@@ -695,55 +883,51 @@
     .view-matrix #products-table-body td:nth-child(1) {
         position: sticky;
         left: 0;
-        background: #0a0b10 !important;
+        background: #e9e4d1 !important;
         z-index: 31;
-        box-shadow: 5px 0 10px rgba(0, 0, 0, 0.5);
+        box-shadow: 4px 0 10px rgba(139, 69, 19, 0.1);
+        border-right: 2px solid #d4ceb8;
     }
 
     .view-matrix #table-headers th:nth-child(2),
     .view-matrix #products-table-body td:nth-child(2) {
         position: sticky;
         left: 300px;
-        /* Approximately after Name column */
-        background: #0f1016 !important;
+        background: #f1ede1 !important;
         z-index: 30;
-        box-shadow: 5px 0 10px rgba(0, 0, 0, 0.5);
+        box-shadow: 4px 0 10px rgba(139, 69, 19, 0.1);
+        border-right: 2px solid #d4ceb8;
     }
 
-    .view-matrix #table-headers th {
-        white-space: nowrap;
-    }
-
-    .view-matrix td {
-        white-space: nowrap;
-    }
-
+    /* Row Styling */
     #products-table-body tr {
-        transition: var(--transition-smooth);
+        transition: var(--transition-tactile);
         border: none !important;
-        background: #0f1016 !important;
+        background: #fdfcf9 !important;
     }
 
     #products-table-body td {
-        border: none !important;
+        border-bottom: 1.5px solid #e5e1d1 !important;
         background: transparent !important;
-        color: white !important;
+        color: #3b2b1d !important;
+        vertical-align: middle;
+        padding: 12px 10px !important;
     }
 
     #products-table-body tr:hover {
-        background: #1a1b23 !important;
-        transform: scale(1.002) translateX(5px);
-        box-shadow: inset 4px 0 0 var(--brand-primary), 0 10px 30px rgba(0, 0, 0, 0.5);
+        background: #f5f2e8 !important;
+        box-shadow: inset 4px 0 0 var(--brand-primary), 0 5px 15px rgba(139, 69, 19, 0.1);
     }
 
     .sku-pill {
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(139, 69, 19, 0.05);
         padding: 4px 10px;
         border-radius: 8px;
         font-size: 0.75rem;
-        color: #64748b;
+        color: #5c4b3a;
         font-family: 'Outfit', sans-serif;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(139, 69, 19, 0.1);
+        font-weight: 800;
     }
 
     .name-cell {
@@ -751,9 +935,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        color: #ffffff !important;
+        color: #1a1a1a !important;
         font-size: 0.95rem;
         letter-spacing: 0.3px;
+        font-weight: 700;
     }
 
     .seller-badge {
@@ -783,6 +968,12 @@
         border-color: rgba(34, 197, 94, 0.2);
     }
 
+    .badge-ym {
+        background: rgba(255, 193, 7, 0.1);
+        color: #ff9800;
+        border-color: rgba(255, 193, 7, 0.2);
+    }
+
     .badge-holod {
         background: rgba(34, 197, 94, 0.1);
         color: #4ade80;
@@ -790,14 +981,16 @@
     }
 
     .price-primary {
-        color: #22d3ee;
+        color: #0d9488;
+        /* Deep Teal for better visibility on light */
         font-size: 1.05rem;
-        text-shadow: 0 0 15px rgba(34, 211, 238, 0.3);
+        font-weight: 800;
     }
 
     .price-secondary {
-        color: #f8fafc;
+        color: #3b2b1d;
         font-size: 0.95rem;
+        opacity: 0.8;
     }
 
     .discount-pill {
@@ -843,14 +1036,63 @@
         pointer-events: none;
     }
 
-    @keyframes shimmer {
-        0% {
-            transform: translate(-30%, -30%) rotate(45deg);
-        }
+    /* LIGHT TACTILE SWITCH STYLES */
+    .tactile-switch {
+        background: #fcfaf5 !important;
+        border: 2px solid #e0d9c4 !important;
+        box-shadow: 0 4px 0 #d1c8ac, 0 5px 10px rgba(139, 69, 19, 0.1);
+        transition: all 0.1s ease !important;
+        margin: 2px !important;
+        color: #5c4b3a !important;
+        font-weight: 800 !important;
+    }
 
-        100% {
-            transform: translate(30%, 30%) rotate(45deg);
-        }
+    .btn-check:checked+.tactile-switch {
+        background: #4f46e5 !important;
+        /* Indigo Knit */
+        background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px), repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0px, rgba(255, 255, 255, 0.05) 2px, transparent 2px, transparent 10px) !important;
+        box-shadow: inset 2px 2px 5px #312e81 !important;
+        transform: translateY(3px) !important;
+        color: #fff !important;
+        border-color: #312e81 !important;
+    }
+
+    /* CRT SCANLINE EFFECT FOR CHARTS */
+    .main-card canvas {
+        background: #05070a;
+        border-radius: 8px;
+        position: relative;
+    }
+
+    .main-card [style*="height: 300px"]::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: repeating-linear-gradient(0deg,
+                rgba(0, 0, 0, 0.1),
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px);
+        pointer-events: none;
+        border-radius: 8px;
+        box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Cleanup old styles */
+    .table-responsive {
+        background-color: transparent !important;
+        border-radius: 12px;
+        padding: 0;
+        border: 2px solid #e5e1d1 !important;
+    }
+
+    #table-scroll-container {
+        background-image:
+            repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.01) 0px, rgba(0, 0, 0, 0.01) 1px, transparent 1px, transparent 10px),
+            repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.01) 0px, rgba(0, 0, 0, 0.01) 1px, transparent 1px, transparent 10px);
     }
 </style>
 {% endblock %}
