@@ -1,4 +1,4 @@
-import os, sys, time, random, json, re, threading, requests, io, shutil
+import os, sys, time, random, json, re, threading, requests, io, shutil, subprocess
 from curl_cffi import requests as cffi_requests
 # Force UTF-8 encoding for stdout and stderr to handle emojis and Russian text
 if sys.stdout.encoding != 'utf-8':
@@ -50,14 +50,31 @@ def find_chrome():
 def get_chrome_major_version():
     """Detect installed Chrome major version on Windows."""
     try:
-        import subprocess
-        cmd = 'powershell -Command "(Get-Item \'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\').VersionInfo.ProductVersion"'
-        output = subprocess.check_output(cmd, shell=True).decode().strip()
-        if output:
-            return int(output.split('.')[0])
+        # Try finding in common locations
+        chrome_exe = find_chrome()
+        if os.path.exists(chrome_exe):
+            import subprocess
+            cmd = f'powershell -Command "(Get-Item \'{chrome_exe}\').VersionInfo.ProductVersion"'
+            output = subprocess.check_output(cmd, shell=True).decode().strip()
+            if output:
+                return int(output.split('.')[0])
     except:
         pass
-    return None
+    return 131 # Safe fallback if detection fails
+
+def clear_uc_cache():
+    """Clear undetected-chromedriver cache to avoid corrupted binaries."""
+    try:
+        import shutil
+        appdata = os.getenv('APPDATA')
+        if appdata:
+            uc_cache = os.path.join(appdata, 'undetected_chromedriver')
+            if os.path.exists(uc_cache):
+                print(f"[LEMANA] Clearing UC cache at: {uc_cache}")
+                shutil.rmtree(uc_cache, ignore_errors=True)
+                time.sleep(1)
+    except Exception as e:
+        print(f"[LEMANA] Cache clearing error: {e}")
 
 # --- Config ---
 CHROME_PATH = find_chrome()
@@ -82,73 +99,85 @@ class LemanaSilentParser:
         pw = os.getenv('MOBILE_PROXY_PASSWORD')
         if host and port:
             self.proxy_url = f"http://{user}:{pw}@{host}:{port}"
-            
+
+    def fetch_with_curl(self, url):
+        """Fetches HTML using curl with Googlebot UA and HTTP/1.1 to bypass WAF."""
+        google_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        cmd = [
+            "curl", "-s", "-k", "-L", "--http1.1", "--max-time", "20",
+            "-H", f"User-Agent: {google_ua}",
+            url
+        ]
+        try:
+            # print(f"[LEMANA] Curled: {url}")
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+            if res.returncode == 0:
+                return res.stdout
+        except Exception as e:
+            print(f"[LEMANA] Curl error: {e}")
+        return None
+
     def start_driver(self, headless=True):
         """Initialize undetected chromedriver with speed optimizations."""
         print(f"[LEMANA] Using Chrome at: {CHROME_PATH} (Headless: {headless})")
         
-        options = uc.ChromeOptions()
-        if self.profile:
-            options.add_argument(f"--user-data-dir={self.profile}")
-        options.binary_location = CHROME_PATH
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-infobars")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--lang=ru-RU")
-        
-        # User-Agent rotation
-        ua_list = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        ]
-        options.add_argument(f"--user-agent={random.choice(ua_list)}")
-        
-        # Speed optimizations
-        options.add_argument("--disable-canvas-aa")
-        options.add_argument("--disable-2d-canvas-clip-aa")
-        options.add_argument("--disable-gl-drawing-for-tests")
-        options.add_argument("--disable-webgl")
-        options.add_argument("--mute-audio")
-        
-        # Enable images to capture useful screenshots for violations
-        prefs = {
-            "profile.managed_default_content_settings.images": 1,
-            "profile.default_content_settings.images": 1
-        }
-        options.add_experimental_option("prefs", prefs)
-        
-        if headless:
-            options.add_argument("--headless=new")
-            options.add_argument("--window-size=1920,1080")
-
-        if self.proxy_url:
-            # Fix proxy_pool import path. Module is in parsers/proxies/
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            proxy_dir = os.path.join(current_dir, "proxies")
-            if os.path.exists(proxy_dir) and proxy_dir not in sys.path: 
-                sys.path.append(proxy_dir)
-            try:
-                from proxy_pool import Proxy, ProxyPool
-                p = Proxy(os.getenv('MOBILE_PROXY_HOST'), int(os.getenv('MOBILE_PROXY_PORT')), 
-                          os.getenv('MOBILE_PROXY_USERNAME'), os.getenv('MOBILE_PROXY_PASSWORD'))
-                pool = ProxyPool(healthcheck=False) 
-                ext_path = pool.build_chrome_auth_extension(p)
-                options.add_argument(f"--load-extension={ext_path}")
-            except Exception as e:
-                print(f"[LEMANA] Proxy extension error: {e}")
-
-        # Substantial stagger start to avoid "thundering herd" on DNS/storage during massive regional startup
-        stagger_wait = random.uniform(2.0, 20.0)
-        time.sleep(stagger_wait)
-
         max_retries = 15 # Increased retries for stability
         for attempt in range(max_retries):
             try:
+                options = uc.ChromeOptions()
+                if self.profile:
+                    options.add_argument(f"--user-data-dir={self.profile}")
+                options.binary_location = CHROME_PATH
+                options.add_argument("--disable-blink-features=AutomationControlled")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-gpu")
+                options.add_argument("--disable-extensions")
+                options.add_argument("--disable-infobars")
+                options.add_argument("--disable-notifications")
+                options.add_argument("--lang=ru-RU")
+                
+                # User-Agent rotation
+                ua_list = [
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                ]
+                options.add_argument(f"--user-agent={random.choice(ua_list)}")
+                
+                # Speed optimizations
+                options.add_argument("--disable-canvas-aa")
+                options.add_argument("--disable-2d-canvas-clip-aa")
+                options.add_argument("--disable-gl-drawing-for-tests")
+                options.add_argument("--disable-webgl")
+                options.add_argument("--mute-audio")
+                
+                # Enable images to capture useful screenshots for violations
+                prefs = {
+                    "profile.managed_default_content_settings.images": 1,
+                    "profile.default_content_settings.images": 1
+                }
+                options.add_experimental_option("prefs", prefs)
+                
+                if headless:
+                    options.add_argument("--headless=new")
+                    options.add_argument("--window-size=1920,1080")
+
+                if self.proxy_url:
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    proxy_dir = os.path.join(current_dir, "proxies")
+                    if os.path.exists(proxy_dir) and proxy_dir not in sys.path: 
+                        sys.path.append(proxy_dir)
+                    try:
+                        from proxy_pool import Proxy, ProxyPool
+                        p = Proxy(os.getenv('MOBILE_PROXY_HOST'), int(os.getenv('MOBILE_PROXY_PORT')), 
+                                  os.getenv('MOBILE_PROXY_USERNAME'), os.getenv('MOBILE_PROXY_PASSWORD'))
+                        pool = ProxyPool(healthcheck=False) 
+                        ext_path = pool.build_chrome_auth_extension(p)
+                        options.add_argument(f"--load-extension={ext_path}")
+                    except Exception as e:
+                        print(f"[LEMANA] Proxy extension error: {e}")
+
                 major_version = get_chrome_major_version()
                 port = random.randint(9500, 9999)
                 self.driver = uc.Chrome(
@@ -209,11 +238,12 @@ class LemanaSilentParser:
             
         return main_url
 
-    def get_product_data(self, product_url, region_id=34):
+    def get_product_data(self, product_url, region_id=34, use_browser=False):
         """
         Parses product data from Lemana Pro.
         :param product_url: Full URL or SKU
-        :param region_id: Region ID (default 34 for Moscow)
+        :param region_id: Region ID
+        :param use_browser: If True, uses Selenium. If False, uses curl + regex (fast).
         """
         if not product_url:
             return None
@@ -224,22 +254,85 @@ class LemanaSilentParser:
             url = f"https://lemanapro.ru/product/{sku}/"
         else:
             url = product_url
-            # Extract SKU for logs/DB if possible
             sku_match = re.search(r'([0-9]+)/?$', url)
             sku = sku_match.group(1) if sku_match else "unknown"
-
-        if str(url).strip().isdigit() or (url.startswith('https://') and url.strip('/').split('/')[-1].isdigit()):
-            # If numeric SKU, resolve it to SEO slug on main domain first to avoid regional 404s
-            sku_to_resolve = sku if sku else url.strip('/').split('/')[-1]
-            resolved_url = self.resolve_lemana_url(sku_to_resolve)
-            if resolved_url:
-                url = resolved_url
 
         # Apply regional subdomain and fromRegion parameter
         url = get_lemana_regional_url(url, region_id)
 
-        # print(f"[LEMANA] Parsing product: {url} (Region: {region_id})")
-        
+        if not use_browser:
+            html = self.fetch_with_curl(url)
+            if html:
+                # Optimized patterns from replication guide
+                patterns = [
+                    r'"price":\s*"?(\d+)"?', 
+                    r',"price":"(\d+)"',
+                    r'main_price["\s:]+(\d+)'
+                ]
+                price = None
+                for p in patterns:
+                    match = re.search(p, html)
+                    if match:
+                        price = float(match.group(1))
+                        break
+                
+                    if price:
+                        # Extract name using a more robust set of patterns
+                        name = "Unknown Product"
+                        
+                        # Pattern 1: JSON-LD Product name (most reliable)
+                        product_json_match = re.search(r'"@type":\s*"Product"[^}]*"name":\s*"([^"]+)"', html)
+                        if product_json_match:
+                            name = product_json_match.group(1)
+                        else:
+                            # Pattern 2: og:title metadata
+                            og_title_match = re.search(r'property="og:title"\s+content="([^"]+)"', html)
+                            if og_title_match:
+                                name = og_title_match.group(1)
+                            else:
+                                # Pattern 3: title tag 
+                                title_match = re.search(r'<title>([^<]+)</title>', html)
+                                if title_match:
+                                    name = title_match.group(1).split(' - ')[0] # Remove suffix
+                                else:
+                                    # Pattern 4: h1 tag
+                                    h1_match = re.search(r'<h1[^>]*>([^<]+)</h1>', html)
+                                    if h1_match:
+                                        name = h1_match.group(1).strip()
+                                    else:
+                                        # Fallback to current simple match if all else fails
+                                        name_match = re.search(r'"name":\s*"([^"]+)"', html)
+                                        if name_match:
+                                            name = name_match.group(1)
+
+                        try:
+                            # Use json.loads to handle potential \u escapes
+                            # If it starts with quote, it's already a JS string, otherwise wrap it
+                            if not name.startswith('"'):
+                                name = json.loads('"' + name.replace('"', '\\"') + '"')
+                            else:
+                                name = json.loads(name)
+                        except Exception as e:
+                            print(f"[LEMANA] Name parsing fallback for {sku}: {e}")
+                            
+                        # Clean up common suffixes
+                        for suffix in [" - купить по низкой цене", " - Леруа Мерлен", " - Лемана Про"]:
+                            if suffix in name:
+                                name = name.split(suffix)[0]
+                        
+                        return {
+                        "sku": sku,
+                        "price": price,
+                        "name": name,
+                        "url": url,
+                        "method": "curl"
+                    }
+            
+            # If curl failed or price not found, we will return None 
+            # and let the caller decide if they want to use_browser=True
+            return None
+
+        # Fallback to Browser Logic (Existing)
         if not self.driver:
             if not self.start_driver(): return None
 
@@ -260,7 +353,8 @@ class LemanaSilentParser:
                             'value': str(region_id),
                             'path': '/'
                         })
-                    except: pass
+                    except Exception as e_cdp:
+                        print(f"[LEMANA] CDP Cookie error for {dom}: {e_cdp}")
                 
                 # Refresh to apply cookie
                 self.driver.refresh()
@@ -269,10 +363,13 @@ class LemanaSilentParser:
                 break # Success
             except Exception as e:
                 if attempt == 0:
+                    print(f"[LEMANA] Load Attempt 1 failed (Region {region_id}): {e}")
                     time.sleep(2)
                     continue
                 else:
                     print(f"[LEMANA] Load Persistent Failure (Region {region_id}): {e}")
+                    import traceback
+                    traceback.print_exc()
                     return None
         
         if not load_success: return None
@@ -414,18 +511,12 @@ def process_region_task(skus_list, region_id, headless=True):
         except: pass
     
     # Stagger starts to avoid literal "thundering herd" on start
-    time.sleep(random.uniform(1, 15))
+    time.sleep(random.uniform(1, 10))
     
     parser = LemanaSilentParser(profile_id=region_id)
     try:
-        if not parser.start_driver(headless=headless):
-            return False
-            
-        # print(f"[LEMANA] Worker started for Region ID: {region_id}")
         total_items = len(skus_list)
         for idx, item in enumerate(skus_list, 1):
-            # Update progress status (simple per-region update for now)
-            # In a more complex setup, we'd aggregate across regions
             if region_id == 34: # Main region update
                 set_status('lemana', idx, total_items)
                 
@@ -435,30 +526,39 @@ def process_region_task(skus_list, region_id, headless=True):
             
             # Start timer for product
             start_t = time.time()
-            data = parser.get_product_data(url, region_id=region_id)
+            
+            # Hybrid Step 1: Fast extraction via curl
+            data = parser.get_product_data(url, region_id=region_id, use_browser=False)
+            
+            violation = False
+            screenshot_rel_path = None
+            
             if data:
                 price = data['price']
-                violation = False
-                screenshot_rel_path = None
-                
                 # Violation detection: price < ric_price
                 if ric_price and float(price) < float(ric_price):
                     violation = True
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    screenshot_dir = os.path.join(ROOT_DIR, 'static', 'screenshots', 'lemana')
-                    if not os.path.exists(screenshot_dir):
-                        os.makedirs(screenshot_dir, exist_ok=True)
+                    # Hybrid Step 2: On-demand browser for screenshot
+                    browser_data = parser.get_product_data(url, region_id=region_id, use_browser=True)
                     
-                    filename = f"violation_{sku}_{region_id}_{timestamp}.png"
-                    screenshot_path = os.path.join(screenshot_dir, filename)
-                    
-                    try:
-                        parser.driver.save_screenshot(screenshot_path)
-                        # Relative path for the web app/Excel
-                        screenshot_rel_path = f"static/screenshots/lemana/{filename}"
-                        print(f"[VIOLATION] 📸 Screenshot saved for {sku}: {price} < {ric_price}")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to take screenshot: {e}")
+                    # Even if data extraction failed, we want the screenshot if browser started
+                    if parser.driver:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        screenshot_dir = os.path.join(ROOT_DIR, 'static', 'screenshots', 'lemana')
+                        if not os.path.exists(screenshot_dir):
+                            os.makedirs(screenshot_dir, exist_ok=True)
+                        
+                        filename = f"violation_{sku}_{region_id}_{timestamp}.png"
+                        screenshot_path = os.path.join(screenshot_dir, filename)
+                        
+                        try:
+                            parser.driver.save_screenshot(screenshot_path)
+                            screenshot_rel_path = f"static/screenshots/lemana/{filename}"
+                            print(f"[VIOLATION] 📸 Screenshot captured (Region {region_id}): {sku}")
+                        except Exception as e:
+                            print(f"[ERROR] Screenshot failed (Region {region_id}, SKU {sku}): {e}")
+                    else:
+                        print(f"[WARNING] Skipping screenshot - browser failed to start (Region {region_id}, SKU {sku})")
                 
                 parser.save_to_db(
                     sku, price, 1, 
@@ -471,22 +571,25 @@ def process_region_task(skus_list, region_id, headless=True):
                 
                 elapsed = time.time() - start_t
                 status_msg = "VIOLATION" if violation else "OK"
-                print(f"[LEMANA] {status_msg} (Region {region_id}): {sku} -> {price} руб. ({elapsed:.1f}s)")
+                method_mark = " (via curl)" if not violation else " (via browser)"
+                print(f"[LEMANA] {status_msg}{method_mark} (Region {region_id}): {sku} -> {price} руб. ({elapsed:.1f}s)")
             else:
-                # Capture failures without verbose snippets unless critical
                 print(f"[LEMANA] FAIL (Region {region_id}): {sku}")
                 
-            # Add random sleep between items to avoid detection and reduce load
-            time.sleep(random.uniform(1.0, 3.0))
+            # Sleep less between items when using curl
+            time.sleep(random.uniform(0.5, 1.5))
             
     except Exception as e:
         print(f"[LEMANA] Worker Error (Region {region_id}): {e}")
     finally:
         parser.close()
 
-def run_lemana_parsing(skus_list, region_ids=[34], max_workers=20, headless=True):
+def run_lemana_parsing(skus_list, region_ids=[34], max_workers=25, headless=True):
     """Entry point for parallel regional parsing."""
     from concurrent.futures import ProcessPoolExecutor, as_completed
+    
+    # Pre-clear cache to avoid driver corruption in Chrome 144
+    clear_uc_cache()
     
     print(f"[LEMANA] Starting parallel parsing: {len(skus_list)} items, {len(region_ids)} regions, {max_workers} workers")
     start_total = time.time()

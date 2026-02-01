@@ -19,9 +19,17 @@ def main():
         os.system('title Lemana Pro Parser (Targeted)')
 
     try:
-        data = json.loads(sys.argv[1])
-        skus = data.get('skus', [])
-        region_ids = data.get('region_ids', [1])
+        # Try to parse as JSON first (from dashboard)
+        if sys.argv[1].startswith('{'):
+            data = json.loads(sys.argv[1])
+            skus = data.get('skus', [])
+            region_ids = data.get('region_ids', [1])
+        else:
+            # Simple CLI arguments: SKU [RegionID] [Platform]
+            skus = [sys.argv[1]]
+            region_ids = [34]
+            if len(sys.argv) > 2:
+                region_ids = [int(sys.argv[2])]
         
         conn = None
         try:
@@ -39,41 +47,43 @@ def main():
             )
             cur = conn.cursor()
             
-            # Get URLs for requested SKUs
+            # Get URLs and RIC prices for requested SKUs
             sku_tuples = tuple(str(s) for s in skus)
             if not sku_tuples:
-                 db_urls = {}
+                 db_data = {}
             else:
-                # Handle single item tuple syntax (x,)
                 if len(sku_tuples) == 1:
-                    query = "SELECT sku, url FROM lemana_prices WHERE sku = %s"
+                    query = "SELECT sku, url, ric_leroy_price FROM public.lemana_prices WHERE sku = %s AND competitor_name = 'Lemana Pro' ORDER BY ric_leroy_price ASC NULLS FIRST"
                     cur.execute(query, (sku_tuples[0],))
                 else:
-                    query = "SELECT sku, url FROM lemana_prices WHERE sku IN %s"
+                    query = "SELECT sku, url, ric_leroy_price FROM public.lemana_prices WHERE sku IN %s AND competitor_name = 'Lemana Pro' ORDER BY sku, ric_leroy_price ASC NULLS FIRST"
                     cur.execute(query, (sku_tuples,))
                 
-                db_urls = {row[0]: row[1] for row in cur.fetchall()}
+                db_data = {row[0]: {"url": row[1], "ric": row[2]} for row in cur.fetchall()}
             
             cur.close()
             conn.close()
         except Exception as db_err:
             print(f"[TARGETED] Warning: Could not fetch URLs from DB: {db_err}")
-            db_urls = {}
+            db_data = {}
 
         # Format for run_lemana_parsing
-        # Use URL from DB if available, otherwise just SKU (which will fallback to short URL)
         skus_list = []
         for sku in skus:
-            url = db_urls.get(str(sku))
+            info = db_data.get(str(sku), {})
+            url = info.get('url')
+            ric = info.get('ric')
+            
             if url:
-                print(f"[TARGETED] Using DB URL for {sku}: {url}")
+                print(f"[TARGETED] Using DB URL for {sku}: {url} (RIC: {ric})")
             else:
                 print(f"[TARGETED] No DB URL for {sku}, using default.")
                 
             skus_list.append({
                 "sku": sku, 
                 "competitor": "Lemana Pro",
-                "url": url
+                "url": url,
+                "ric_leroy_price": ric
             })
         
         print(f"[TARGETED] Starting parsing for {len(skus)} SKUs in {len(region_ids)} regions...")

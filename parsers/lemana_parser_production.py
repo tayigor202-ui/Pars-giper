@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 import psycopg2
 from lemana_silent_parser import run_lemana_parsing
 from lemana_reporting import generate_lemana_report, send_lemana_report
+from core.lemana_utils import LEMANA_ALL_REGION_IDS
 
 load_dotenv()
 
@@ -46,7 +47,14 @@ def main():
         # Load tasks from DB
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        cur.execute("SELECT sku, competitor_name, sp_code, url, ric_leroy_price FROM public.lemana_prices WHERE sku IS NOT NULL")
+        # Use DISTINCT ON (sku) to avoid redundant tasks. 
+        # Ordering by url DESC NULLS LAST ensures we pick an entry that already has a full URL if available.
+        cur.execute("""
+            SELECT DISTINCT ON (sku) sku, competitor_name, sp_code, url, ric_leroy_price 
+            FROM public.lemana_prices 
+            WHERE sku IS NOT NULL
+            ORDER BY sku, ric_leroy_price DESC NULLS LAST, url DESC NULLS LAST
+        """)
         items = cur.fetchall()
         cur.close()
         conn.close()
@@ -64,7 +72,7 @@ def main():
         ]
         
         # Run parsing
-        run_lemana_parsing(skus_list)
+        run_lemana_parsing(skus_list, region_ids=LEMANA_ALL_REGION_IDS)
         
         # Report generation
         print("\n" + "="*70)
@@ -80,13 +88,9 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
-        # Cleanup browser processes like in Ozon/WB
-        try:
-            if os.name == 'nt':
-                os.system("taskkill /F /IM chrome.exe /T >nul 2>&1")
-                os.system("taskkill /F /IM chromedriver.exe /T >nul 2>&1")
-                print("[CLEANUP] Browser processes terminated.")
-        except: pass
+        # Cleanup browser processes robustly
+        from core.lemana_utils import kill_lemana_browsers
+        kill_lemana_browsers()
 
 if __name__ == "__main__":
     main()

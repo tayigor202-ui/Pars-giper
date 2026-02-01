@@ -215,12 +215,12 @@ def run_script_in_background(script_path, log_name, show_console=False):
             # We don't redirect to file here so the output is visible in the console
             # (Alternatively, we could use 'tee' but that's not native on Windows)
             popen_kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+            subprocess.Popen([sys.executable, "-u", script_path], **popen_kwargs)
         else:
             log_file = open(log_file_path, "w", encoding="utf-8")
             popen_kwargs["stdout"] = log_file
             popen_kwargs["stderr"] = subprocess.STDOUT
-        
-        subprocess.Popen([sys.executable, "-u", script_path], **popen_kwargs)
+            subprocess.Popen([sys.executable, "-u", script_path], **popen_kwargs)
         return True, f'logs/{log_name}.log'
     except Exception as e:
         return False, str(e)
@@ -433,10 +433,10 @@ def parse_ozon_targeted():
             min_p = filters.get('min_price')
             max_p = filters.get('max_price')
             if min_p:
-                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9.]', '', 'g'), '')::NUMERIC >= %s"
                 params.append(min_p)
             if max_p:
-                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9.]', '', 'g'), '')::NUMERIC <= %s"
                 params.append(max_p)
 
             cur.execute(query, params)
@@ -498,10 +498,10 @@ def parse_wb_targeted():
             min_p = filters.get('min_price')
             max_p = filters.get('max_price')
             if min_p:
-                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9.]', '', 'g'), '')::NUMERIC >= %s"
                 params.append(min_p)
             if max_p:
-                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+                query += " AND NULLIF(REGEXP_REPLACE(price_nocard, '[^0-9.]', '', 'g'), '')::NUMERIC <= %s"
                 params.append(max_p)
 
             cur.execute(query, params)
@@ -1053,17 +1053,17 @@ def dashboard_stats():
         cur.execute(f"""
             SELECT COUNT(DISTINCT sku) FROM {table}
             WHERE {price_col} IS NOT NULL 
-            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            AND NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC > 0
         """)
         products_with_prices = cur.fetchone()[0]
         
         print("[DEBUG] Querying average price...")
         # Average price - clean and convert
         cur.execute(f"""
-            SELECT AVG(NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC) 
+            SELECT AVG(NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC) 
             FROM {table}
             WHERE {price_col} IS NOT NULL 
-            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            AND NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC > 0
         """)
         avg_price = cur.fetchone()[0] or 0
         
@@ -1116,11 +1116,11 @@ def dashboard_chart():
         cur.execute(f"""
             SELECT 
                 competitor_name,
-                AVG(NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC) as avg_price
+                AVG(NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC) as avg_price
             FROM {table} 
             WHERE competitor_name IS NOT NULL 
             AND {price_col} IS NOT NULL
-            AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC > 0
+            AND NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC > 0
             GROUP BY competitor_name
             ORDER BY avg_price DESC
             LIMIT 10
@@ -1195,7 +1195,7 @@ def dashboard_items():
                 # but we prefer them in sort. Actually we SHOULD filter if it's list view for consistency.
                 pass 
         else:
-            query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code FROM {table} WHERE 1=1"
+            query = f"SELECT sku, name, competitor_name, price_card, price_nocard, price_old, created_at, status, sp_code, NULL as url, NULL as region_id, violation_detected, violation_screenshot FROM {table} WHERE 1=1"
             
         
         if search:
@@ -1208,13 +1208,13 @@ def dashboard_items():
             if platform == 'lemana': price_col = "price"
             elif platform == 'ym': price_col = "price_base"
             else: price_col = "price_nocard"
-            query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC >= %s"
+            query += f" AND NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC >= %s"
             params.append(min_price)
         if max_price:
             if platform == 'lemana': price_col = "price"
             elif platform == 'ym': price_col = "price_base"
             else: price_col = "price_nocard"
-            query += f" AND NULLIF(REGEXP_REPLACE({price_col}, '[^0-9]', '', 'g'), '')::NUMERIC <= %s"
+            query += f" AND NULLIF(REGEXP_REPLACE(CAST({price_col} AS TEXT), '[^0-9.]', '', 'g'), '')::NUMERIC <= %s"
             params.append(max_price)
             
         # Count total for pagination
@@ -1321,7 +1321,9 @@ def dashboard_items():
                     'price': format_val(r[4], status),
                     'old': format_val(r[5], status),
                     'updated': r[6].strftime('%d.%m %H:%M') if r[6] else '---',
-                    'sp_code': r[8] or '---'
+                    'sp_code': r[8] or '---',
+                    'violation_detected': r[11],
+                    'violation_screenshot': r[12]
                 })
             
         return jsonify({
